@@ -764,8 +764,7 @@ def visualise(
     )
 
     plt.tight_layout()
-    plt.show()
-
+    plt.savefig('gcode_nozzle_path.png', dpi=300, bbox_inches='tight')
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  FILE / INPUT HANDLING
