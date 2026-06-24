@@ -880,3 +880,79 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+#---------------------------------------------------------------------
+# UPDATE FOR PACKAGE DELIVERY
+#---------------------------------------------------------------------
+
+
+_EXAMPLE_GCODE = textwrap.dedent("""\
+    // Aerotech Automation1 – Simple rectangle test
+    G71       // mm units
+    G76       // feedrate in mm/sec
+    G90       // absolute positioning
+    F10       // feedrate = 10 mm/s
+    var $Zprint = 0.4
+    G0 X0 Y0 Z5
+    G0 X0 Y0 Z$Zprint
+    G1 X55 Y0
+    G1 X55 Y45
+    G1 X0  Y45
+    G1 X0  Y0
+    G0 X0  Y0 Z5
+""")
+def get_gcode_text() -> tuple:
+    if len(sys.argv) > 1:
+        path = sys.argv[1].strip().strip('"').strip("'")
+        if not os.path.isfile(path):
+            print(f"[ERROR] File not found: {path!r}")
+            sys.exit(1)
+        with open(path, 'r', encoding='utf-8', errors='replace') as fh:
+            return fh.read(), os.path.basename(path)
+    print("═" * 60)
+    print("  Aerotech G-code Nozzle Path Viewer")
+    print("═" * 60)
+    print("  Provide a file path, or press [Enter] to use the built-in")
+    print("  rectangle example.\n")
+    user_input = input("  File path (or press Enter for example): ").strip().strip('"').strip("'")
+    if user_input:
+        if not os.path.isfile(user_input):
+            print(f"[ERROR] File not found: {user_input!r}")
+            sys.exit(1)
+        with open(user_input, 'r', encoding='utf-8', errors='replace') as fh:
+            return fh.read(), os.path.basename(user_input)
+    print("\n  No file provided – using built-in rectangle example.\n")
+    return _EXAMPLE_GCODE, "Built-in rectangle example"
+def main():
+    print()
+    print("━" * 60)
+    print("  Aerotech Automation1 G-Code Nozzle Path Viewer")
+    print("━" * 60)
+    gcode_text, source_label = get_gcode_text()
+    print(f"\n  Source: {source_label}")
+    lines = preprocess(gcode_text)
+    print(f"  Lines after preprocessing: {len(lines)}\n")
+    print("  Parsing G-code …")
+    try:
+        travel_segs, print_segs, z_anns, final_state = parse_gcode(lines)
+    except ValueError as exc:
+        print(f"\n[FATAL] {exc}")
+        sys.exit(1)
+    unit_label = "mm" if final_state.unit_mm else "in"
+    print(f"\n  ✓ Parsing complete.")
+    print(f"    Travel segments : {len(travel_segs)}")
+    print(f"    Print  segments : {len(print_segs)}")
+    print(f"    Z annotations   : {len(z_anns)}")
+    print(f"    Final position  : X={final_state.x:.4f}  "
+          f"Y={final_state.y:.4f}  Z={final_state.z:.4f}  ({unit_label})")
+    print(f"    Variables       : {final_state.variables}")
+    print()
+    print("  Saving PNG …")
+    output_path = os.path.join(os.getcwd(), "gcode_nozzle_path.png")
+    visualise(travel_segs, print_segs, z_anns,
+              title=f"Aerotech Nozzle Path Preview – {source_label}",
+              unit_label=unit_label,
+              output_path=output_path)
+    print(f"  PNG saved to: {output_path}")
+if __name__ == '__main__':
+    main()
