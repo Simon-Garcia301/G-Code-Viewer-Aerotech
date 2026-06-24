@@ -33,20 +33,9 @@ except ImportError:
 
 # ── Import the conversion function from our existing script ──────────────────
 # main.py must live in the same directory as this file.
-try:
-    from main import convert_gcode_to_png
-except ImportError as _e:
-    # Give a clear message if the sibling file is missing
-    import tkinter.messagebox as _mb
-    _root = tk.Tk()
-    _root.withdraw()
-    _mb.showerror(
-        "Import Error",
-        f"Could not import 'main.py'.\n\n"
-        f"Make sure main.py is in the same folder as this script.\n\n"
-        f"Details: {_e}"
-    )
-    sys.exit(1)
+# NEW — import from the engine module directly
+from gcode_engine import convert_gcode_to_png
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
