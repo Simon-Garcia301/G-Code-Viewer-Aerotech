@@ -47,16 +47,25 @@ INCH_TO_MM   = 25.4     # 1 inch = 25.4 mm
 _WORD_RE = re.compile(
     r'(?P<letter>[A-Z])'
     r'\s*'
-    r'(?P<value>[+-]?\d+\.?\d*(?:[eE][+-]?\d+)?|\$[A-Za-z_]\w*)',
+    r'(?P<value>'
+    r'[+-]?\d+\.?\d*(?:[eE][+-]?\d+)?'  # numeric literal
+    r'|'
+    r'[&$][A-Za-z_]\w*'                   # variable reference with $ or &
+    r')',
     re.IGNORECASE,
 )
 
+
 # Matches a full variable declaration: "var $NAME = VALUE"
 _VAR_DECL_RE = re.compile(
-    r'var\s+\$?(?P<name>[A-Za-z_]\w*)\s*=\s*'
+    r'var\s+'                              # keyword
+    r'[&$]?(?P<name>[A-Za-z_]\w*)'         # optional $ or &, then name
+    r'(?:\s+as\s+\w+)?'                    # optional "as <type>"
+    r'\s*=\s*'                             # optional whitespace around =
     r'(?P<value>[+-]?\d+\.?\d*(?:[eE][+-]?\d+)?)',
     re.IGNORECASE,
 )
+
 
 # Function calls that have no effect on the tool path — silently skipped
 _NOOP_RE = re.compile(
@@ -102,16 +111,16 @@ class MachineState:
         mm = self.to_mm(raw)
         return mm if self.absolute else getattr(self, axis) + mm
 
-    def resolve_variable(self, token: str) -> float:
-        """Return the float value of *token*, resolving $VAR references."""
-        if token.startswith('$'):
-            name = token[1:]
-            if name not in self.variables:
-                raise ValueError(
-                    f"Variable '${name}' used before declaration."
-                )
-            return self.variables[name]
-        return float(token)
+   def resolve_variable(self, token: str) -> float:
+    if token.startswith('$') or token.startswith('&'):
+        name = token[1:]
+        if name not in self.variables:
+            raise ValueError(
+                f"Variable '{token}' used before declaration."
+            )
+        return self.variables[name]
+    return float(token)
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
