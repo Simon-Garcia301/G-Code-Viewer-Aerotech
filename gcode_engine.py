@@ -111,15 +111,16 @@ class MachineState:
         mm = self.to_mm(raw)
         return mm if self.absolute else getattr(self, axis) + mm
 
-   def resolve_variable(self, token: str) -> float:
-    if token.startswith('$') or token.startswith('&'):
-        name = token[1:]
-        if name not in self.variables:
-            raise ValueError(
-                f"Variable '{token}' used before declaration."
-            )
-        return self.variables[name]
-    return float(token)
+    def resolve_variable(self, token: str) -> float:
+        """Resolve a variable reference ($NAME) or return a float literal."""
+        if token.startswith('$') or token.startswith('&'):
+            name = token[1:]
+            if name not in self.variables:
+                raise ValueError(
+                    f"Variable '{token}' used before declaration."
+                )
+            return self.variables[name]
+        return float(token)
 
 
 
