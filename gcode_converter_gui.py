@@ -4,6 +4,7 @@ gcode_converter_gui.py
 ━━━━━━━━━━━━━━━━━━━━━━
 Desktop GUI front-end for the Aerotech G-Code → PNG converter.
 Includes an interactive 2-D / 3-D layer preview via Matplotlib/TkAgg.
+Redesigned with a modern two-column layout.
 """
 
 import os
@@ -48,6 +49,8 @@ from gcode_engine import (
 _output_manually_set: bool = False
 _last_browse_dir:     str  = os.path.expanduser("~")
 _LATEST_LAYERS:       list = []   # list[PrintLayer], filled after parsing
+_layer_buttons:       list = []   # list of ttk.Button for layer grid
+_active_layer_idx:    int  = 0    # currently selected layer index
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -221,7 +224,7 @@ def _png_done(result, output_folder, convert_btn, progress_bar,
 def _start_parse_and_preview(
     input_var, bed_w_var, bed_h_var,
     convert_btn, status_label,
-    layer_slider, snapshot_btn,
+    layer_grid_frame, snapshot_btn,
     fig, canvas, view_mode_var,
     root,
 ):
@@ -244,7 +247,7 @@ def _start_parse_and_preview(
         target=_parse_worker,
         args=(gcode_path, bed_w, bed_h,
               convert_btn, status_label,
-              layer_slider, snapshot_btn,
+              layer_grid_frame, snapshot_btn,
               fig, canvas, view_mode_var, root),
         daemon=True,
     ).start()
@@ -253,7 +256,7 @@ def _start_parse_and_preview(
 def _parse_worker(
     gcode_path, bed_w, bed_h,
     convert_btn, status_label,
-    layer_slider, snapshot_btn,
+    layer_grid_frame, snapshot_btn,
     fig, canvas, view_mode_var, root,
 ):
     """Background thread: parse, then schedule UI update on the main thread."""
@@ -266,7 +269,7 @@ def _parse_worker(
             0, _on_parsing_done,
             layers, bed_w, bed_h, state,
             convert_btn, status_label,
-            layer_slider, snapshot_btn,
+            layer_grid_frame, snapshot_btn,
             fig, canvas, view_mode_var,
         )
     except Exception as exc:
@@ -280,12 +283,13 @@ def _parse_worker(
 def _on_parsing_done(
     layers, bed_w, bed_h, state,
     convert_btn, status_label,
-    layer_slider, snapshot_btn,
+    layer_grid_frame, snapshot_btn,
     fig, canvas, view_mode_var,
 ):
     """Main-thread callback: update all widgets after successful parse."""
-    global _LATEST_LAYERS
+    global _LATEST_LAYERS, _layer_buttons, _active_layer_idx
     _LATEST_LAYERS = layers
+    _active_layer_idx = 0
 
     if not layers:
         _on_parsing_error(
@@ -294,17 +298,13 @@ def _on_parsing_done(
         )
         return
 
-    # Always reset to "2D Top" on a fresh load so the user gets a clean start.
-    # This also ensures the slider is re-enabled if it was previously disabled
-    # by "3D All Layers" mode during a prior session.
+    # Always reset to "2D Top" on a fresh load
     view_mode_var.set("2D Top")
 
-    # Configure slider — always re-enable it since we just reset to "2D Top"
-    n_layers = len(layers)
-    layer_slider.config(state="normal", from_=0, to=max(n_layers - 1, 0))
-    layer_slider.set(0)
+    # Rebuild layer buttons
+    _rebuild_layer_buttons(layer_grid_frame, fig, canvas, view_mode_var, bed_w, bed_h, state)
 
-    # Resolve bed dimensions (may have been passed as None)
+    # Resolve bed dimensions
     try:
         bw = float(bed_w) if bed_w is not None else None
         bh = float(bed_h) if bed_h is not None else None
@@ -317,7 +317,6 @@ def _on_parsing_done(
         fig          = fig,
         canvas       = canvas,
         view_mode_var= view_mode_var,
-        layer_slider = layer_slider,
         bed_w        = bw,
         bed_h        = bh,
         unit_label   = "mm" if state.unit_mm else "in",
@@ -327,7 +326,7 @@ def _on_parsing_done(
     convert_btn.config(state="normal")
     _set_status(
         status_label,
-        f"Ready — {n_layers} layer(s) loaded.  Interactive preview active.",
+        f"Ready — {len(layers)} layer(s) loaded.  Interactive preview active.",
         "#44dd88",
     )
 
@@ -339,6 +338,115 @@ def _on_parsing_error(message, convert_btn, status_label):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  LAYER BUTTON GRID
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _rebuild_layer_buttons(parent_frame, fig, canvas, view_mode_var, bed_w, bed_h, state):
+    """Destroy old buttons and create a new grid of layer buttons."""
+    global _layer_buttons, _LATEST_LAYERS, _active_layer_idx
+
+    # Clear existing buttons
+    for btn in _layer_buttons:
+        btn.destroy()
+    _layer_buttons.clear()
+
+    # Also clear any existing children in the parent frame
+    for child in parent_frame.winfo_children():
+        child.destroy()
+
+    n_layers = len(_LATEST_LAYERS)
+    if n_layers == 0:
+        ttk.Label(parent_frame, text="No layers", foreground="#666666",
+                  font=("Segoe UI", 9)).pack(pady=10)
+        return
+
+    cols = 5
+    n_layers = len(_LATEST_LAYERS)
+
+    # Create a frame for the grid
+    grid_inner = ttk.Frame(parent_frame)
+    grid_inner.pack(fill=BOTH, expand=True)
+
+    for i in range(n_layers):
+        row = i // cols
+        col = i % cols
+
+        def make_cmd(idx):
+            return lambda: _on_layer_button_click(idx, fig, canvas, view_mode_var, bed_w, bed_h, state)
+
+        btn = ttk.Button(
+            grid_inner,
+            text=str(i + 1),
+            bootstyle="secondary-outline",
+            width=5,
+            command=make_cmd(i),
+        )
+        btn.grid(row=row, column=col, padx=2, pady=2, sticky="ew")
+        _layer_buttons.append(btn)
+
+    # Configure grid weights
+    for c in range(cols):
+        grid_inner.columnconfigure(c, weight=1)
+
+    # Highlight the active layer
+    _highlight_layer_button(_active_layer_idx)
+
+    # Tooltip-like label showing Z height range
+    z_min = min(l.z for l in _LATEST_LAYERS)
+    z_max = max(l.z for l in _LATEST_LAYERS)
+    z_info = ttk.Label(
+        parent_frame,
+        text=f"Z: {z_min:.2f} – {z_max:.2f} {('mm' if state.unit_mm else 'in')}",
+        foreground="#888888",
+        font=("Segoe UI", 8),
+    )
+    z_info.pack(pady=(5, 0))
+
+
+def _highlight_layer_button(layer_idx):
+    """Update button styles to highlight the active layer."""
+    global _layer_buttons, _active_layer_idx
+    _active_layer_idx = layer_idx
+    for i, btn in enumerate(_layer_buttons):
+        if i == layer_idx:
+            btn.configure(bootstyle="primary")
+        else:
+            btn.configure(bootstyle="secondary-outline")
+
+
+def _on_layer_button_click(layer_idx, fig, canvas, view_mode_var, bed_w, bed_h, state):
+    """Handle layer button click."""
+    global _LATEST_LAYERS, _active_layer_idx
+    if not _LATEST_LAYERS or layer_idx >= len(_LATEST_LAYERS):
+        return
+
+    _active_layer_idx = layer_idx
+
+    mode = view_mode_var.get()
+    if mode == "3D All Layers":
+        # In all-layers mode, clicking a layer button switches to 2D Top
+        view_mode_var.set("2D Top")
+
+    try:
+        bw = float(bed_w) if bed_w is not None else None
+        bh = float(bed_h) if bed_h is not None else None
+    except (TypeError, ValueError):
+        bw = bh = None
+
+    _redraw_preview(
+        layer_idx    = layer_idx,
+        fig          = fig,
+        canvas       = canvas,
+        view_mode_var= view_mode_var,
+        bed_w        = bw,
+        bed_h        = bh,
+        unit_label   = "mm" if state.unit_mm else "in",
+    )
+
+    _highlight_layer_button(layer_idx)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  REDRAW  (called from main thread only)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -347,7 +455,6 @@ def _redraw_preview(
     fig           = None,
     canvas        = None,
     view_mode_var = None,
-    layer_slider  = None,
     bed_w         = None,
     bed_h         = None,
     unit_label    = "mm",
@@ -362,16 +469,12 @@ def _redraw_preview(
     fig.patch.set_facecolor('#1e1e2e')
 
     if mode == "3D All Layers":
-        # All-layers stacked view — no single layer needed
         ax = fig.add_subplot(111, projection='3d')
         _draw_3d_all_layers(ax, bed_w, bed_h, unit_label)
     else:
         # Resolve index for single-layer modes
         if layer_idx is None:
-            try:
-                layer_idx = int(float(layer_slider.get()))
-            except Exception:
-                layer_idx = 0
+            layer_idx = 0
         layer_idx = max(0, min(layer_idx, len(_LATEST_LAYERS) - 1))
         layer     = _LATEST_LAYERS[layer_idx]
 
@@ -508,8 +611,8 @@ def _draw_3d_all_layers(ax, bed_w, bed_h, unit_label):
     if n_layers == 0:
         return
 
-    # ── Colormap (compatible with modern matplotlib) ──────────────────────
-    cmap = plt.get_cmap('plasma')          # instead of cm.get_cmap()
+    # ── Colormap ──────────────────────────────────────────────────────────
+    cmap = plt.get_cmap('plasma')
     norm = mcolors.Normalize(vmin=0, vmax=max(n_layers - 1, 1))
     layer_rgba = [cmap(norm(i)) for i in range(n_layers)]
 
@@ -576,7 +679,7 @@ def _draw_3d_all_layers(ax, bed_w, bed_h, unit_label):
         color='#eeeeff', fontsize=12, fontweight='bold', pad=8,
     )
 
-    # ── Legend (unchanged) ────────────────────────────────────────────────
+    # ── Legend ────────────────────────────────────────────────────────────
     first_color = layer_rgba[0]
     last_color  = layer_rgba[-1]
 
@@ -621,6 +724,7 @@ def _draw_3d_all_layers(ax, bed_w, bed_h, unit_label):
     ax.zaxis.pane.set_edgecolor('#444466')
     ax.grid(True, color='#444466', linewidth=0.3, linestyle=':')
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  SNAPSHOT
 # ══════════════════════════════════════════════════════════════════════════════
@@ -644,15 +748,15 @@ def _save_snapshot(fig: Figure, output_var, status_label) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  GUI CONSTRUCTION
+#  GUI CONSTRUCTION  —  TWO-COLUMN LAYOUT
 # ══════════════════════════════════════════════════════════════════════════════
 
 def build_gui() -> ttk.Window:
 
     root = ttk.Window(
-        title="G-Code Converter & 3D Preview",
+        title="Lee Research Lab - GCode Visualizer",
         themename="darkly",
-        size=(1000, 800),
+        size=(1400, 900),
         resizable=(True, True),
     )
     if DND_AVAILABLE:
@@ -665,53 +769,82 @@ def build_gui() -> ttk.Window:
     bed_h_var     = tk.StringVar()
     view_mode_var = tk.StringVar(value="2D Top")
 
-    # ── Mutable single-element lists used as mutable cells ────────────────────
-    # (so lambdas defined before the widget exists can still reference it)
-    _btn_cell    = [None]   # convert button
-    _snap_cell   = [None]   # snapshot button
-    _slider_cell = [None]   # layer slider
-    _fig_cell    = [None]   # Figure
-    _canvas_cell = [None]   # FigureCanvasTkAgg
-    _label_cell  = [None]   # layer-index label beside slider
-    _status_cell = [None]   # status label (needed by slider callback)
-    _bedw_cell   = [bed_w_var]
-    _bedh_cell   = [bed_h_var]
+    # ── Mutable cells for forward references ──────────────────────────────────
+    _btn_cell        = [None]   # convert button
+    _snap_cell       = [None]   # snapshot button
+    _fig_cell        = [None]   # Figure
+    _canvas_cell     = [None]   # FigureCanvasTkAgg
+    _status_cell     = [None]   # status label
+    _layer_grid_cell = [None]   # layer button grid frame
 
-    # ── Outer frame (grid layout for resizability) ────────────────────────────
-    outer = ttk.Frame(root, padding=(20, 14, 20, 14))
-    outer.pack(fill=BOTH, expand=YES)
-    outer.columnconfigure(0, weight=1)
-    outer.rowconfigure(10, weight=1)   # canvas row expands
+    # ── Main Panedwindow for two-column layout (note: lowercase 'w') ──────────
+    main_pane = ttk.Panedwindow(root, orient=HORIZONTAL)
+    main_pane.pack(fill=BOTH, expand=YES, padx=0, pady=0)
 
-    # ── Header ─────────────────────────────────────────────────────────────────
+    # ── LEFT COLUMN: Controls panel ──────────────────────────────────────────
+    left_frame = ttk.Frame(main_pane, padding=(15, 15, 10, 15))
+
+    # Title header
     ttk.Label(
-        outer,
-        text="G-Code Converter & Interactive Preview",
-        font=("Segoe UI", 17, "bold"),
+        left_frame,
+        text="Lab GCode Tools",
+        font=("Segoe UI", 16, "bold"),
+        foreground="#eeeeff",
         anchor=CENTER,
-    ).grid(row=0, column=0, sticky=EW, pady=(0, 4))
-    ttk.Separator(outer, orient=HORIZONTAL).grid(
-        row=1, column=0, sticky=EW, pady=(0, 10))
+    ).pack(fill=X, pady=(0, 10))
+    ttk.Separator(left_frame, orient=HORIZONTAL).pack(fill=X, pady=(0, 12))
 
-    # ── Row helper ─────────────────────────────────────────────────────────────
-    def make_row(parent, label_text, row_num, label_width=16):
-        frame = ttk.Frame(parent)
-        frame.grid(row=row_num, column=0, sticky=EW, pady=(0, 6))
-        frame.columnconfigure(1, weight=1)
-        ttk.Label(frame, text=label_text,
-                  width=label_width, anchor=W).grid(row=0, column=0, sticky=W)
-        return frame
+    # ── Scrollable inner content for left column ──────────────────────────────
+    left_canvas = tk.Canvas(left_frame, highlightthickness=0, bg='#2b2b2b')
+    left_scroll = ttk.Scrollbar(left_frame, orient=VERTICAL, command=left_canvas.yview)
+    left_inner  = ttk.Frame(left_canvas, padding=(0, 0, 5, 0))
 
-    # ── 1. Input file ──────────────────────────────────────────────────────────
-    row1        = make_row(outer, "G-Code File:", row_num=2)
-    input_entry = ttk.Entry(row1, textvariable=input_var,
+    left_inner.bind(
+        "<Configure>",
+        lambda e: left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+    )
+
+    left_canvas.create_window((0, 0), window=left_inner, anchor="nw")
+    left_canvas.configure(yscrollcommand=left_scroll.set)
+
+    left_canvas.pack(side=LEFT, fill=BOTH, expand=YES)
+    left_scroll.pack(side=RIGHT, fill=Y)
+
+    # Bind mousewheel scrolling
+    def _on_mousewheel(event):
+        left_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+    left_canvas.bind("<Enter>", lambda e: left_canvas.bind_all("<MouseWheel>", _on_mousewheel, add="+"))
+    left_canvas.bind("<Leave>", lambda e: left_canvas.unbind_all("<MouseWheel>"))
+
+    # Also configure canvas width to match frame
+    def _configure_canvas_width(event):
+        canvas_width = event.width
+        left_canvas.itemconfig(left_canvas.find_all()[0], width=canvas_width)
+    left_canvas.bind("<Configure>", _configure_canvas_width)
+
+    # ── Helper: section label ─────────────────────────────────────────────────
+    def section_label(parent, text):
+        lbl = ttk.Label(parent, text=text, font=("Segoe UI", 10, "bold"),
+                        foreground="#cccccc", anchor=W)
+        lbl.pack(fill=X, pady=(12, 4))
+        return lbl
+
+    def small_label(parent, text):
+        lbl = ttk.Label(parent, text=text, font=("Segoe UI", 9),
+                        foreground="#aaaaaa", anchor=W)
+        lbl.pack(fill=X, pady=(0, 2))
+        return lbl
+
+    # ── 1. G-Code File ────────────────────────────────────────────────────────
+    section_label(left_inner, "G-Code File")
+    input_entry = ttk.Entry(left_inner, textvariable=input_var,
                             state="readonly", style="secondary.TEntry")
-    input_entry.grid(row=0, column=1, sticky=EW, padx=(4, 6))
+    input_entry.pack(fill=X, pady=(0, 4))
     ttk.Button(
-        row1, text="Browse", bootstyle="primary-outline",
+        left_inner, text="📂  Browse", bootstyle="primary-outline",
         command=lambda: browse_input(
             input_var, output_var, input_entry, output_entry, _btn_cell[0]),
-    ).grid(row=0, column=2)
+    ).pack(fill=X, pady=(0, 8))
 
     # Placeholder text
     _PH = "Drop G-code file here…"
@@ -723,53 +856,39 @@ def build_gui() -> ttk.Window:
             input_entry.config(state="readonly", foreground="#888888")
     root.after(50, _show_ph)
 
-    # ── 2. Output folder ───────────────────────────────────────────────────────
-    row2         = make_row(outer, "Output Folder:", row_num=3)
-    output_entry = ttk.Entry(row2, textvariable=output_var,
+    # ── 2. Output Folder ──────────────────────────────────────────────────────
+    section_label(left_inner, "Output Folder")
+    output_entry = ttk.Entry(left_inner, textvariable=output_var,
                              state="readonly", style="secondary.TEntry")
-    output_entry.grid(row=0, column=1, sticky=EW, padx=(4, 6))
+    output_entry.pack(fill=X, pady=(0, 4))
     ttk.Button(
-        row2, text="Browse", bootstyle="primary-outline",
+        left_inner, text="📁  Browse", bootstyle="primary-outline",
         command=lambda: browse_output(
             input_var, output_var, output_entry, _btn_cell[0]),
-    ).grid(row=0, column=2)
+    ).pack(fill=X, pady=(0, 8))
 
-    # ── 3. Bed size ────────────────────────────────────────────────────────────
-    row3 = make_row(outer, "Bed Size (W × H):", row_num=4)
-    ttk.Entry(row3, textvariable=bed_w_var, width=10).grid(
-        row=0, column=1, sticky=W, padx=(4, 4))
-    ttk.Label(row3, text="×", foreground="#aaaaaa").grid(
-        row=0, column=2, padx=(0, 4))
-    ttk.Entry(row3, textvariable=bed_h_var, width=10).grid(
-        row=0, column=3, sticky=W, padx=(0, 6))
-    ttk.Label(row3, text="mm  (optional)", foreground="#888888",
-              font=("Segoe UI", 9)).grid(row=0, column=4, sticky=W)
+    # ── 3. Bed Size ───────────────────────────────────────────────────────────
+    section_label(left_inner, "Bed Size (mm)")
+    bed_frame = ttk.Frame(left_inner)
+    bed_frame.pack(fill=X, pady=(0, 8))
+    ttk.Entry(bed_frame, textvariable=bed_w_var, width=8).pack(side=LEFT, padx=(0, 4))
+    ttk.Label(bed_frame, text="x", foreground="#aaaaaa",
+              font=("Segoe UI", 10)).pack(side=LEFT, padx=(0, 4))
+    ttk.Entry(bed_frame, textvariable=bed_h_var, width=8).pack(side=LEFT, padx=(0, 8))
+    ttk.Label(bed_frame, text="(optional)", foreground="#666666",
+              font=("Segoe UI", 8)).pack(side=LEFT)
 
-    # ── Separator ──────────────────────────────────────────────────────────────
-    ttk.Separator(outer, orient=HORIZONTAL).grid(
-        row=5, column=0, sticky=EW, pady=(6, 10))
+    # ── Separator ─────────────────────────────────────────────────────────────
+    ttk.Separator(left_inner, orient=HORIZONTAL).pack(fill=X, pady=(8, 8))
 
-    # ── View-mode radio buttons ────────────────────────────────────────────────
-    radio_frame = ttk.Frame(outer)
-    radio_frame.grid(row=6, column=0, sticky=W, pady=(0, 6))
-    ttk.Label(radio_frame, text="Preview mode:",
-              foreground="#cccccc", font=("Segoe UI", 10)).pack(
-        side=LEFT, padx=(0, 10))
+    # ── 4. Preview Mode ───────────────────────────────────────────────────────
+    section_label(left_inner, "Preview Mode")
 
     def _on_mode_change():
         """Redraw whenever the user switches view mode."""
+        global _LATEST_LAYERS, _active_layer_idx
         if not _LATEST_LAYERS:
             return
-
-        mode = view_mode_var.get()
-
-        # ── Disable/enable the layer slider based on mode ─────────────────────
-        # "3D All Layers" renders everything at once; the per-layer slider is
-        # meaningless in that context, so we disable it to avoid confusion.
-        if mode == "3D All Layers":
-            _slider_cell[0].config(state="disabled")
-        else:
-            _slider_cell[0].config(state="normal")
 
         try:
             bw = float(bed_w_var.get()) if bed_w_var.get().strip() else None
@@ -778,92 +897,50 @@ def build_gui() -> ttk.Window:
             bw = bh = None
 
         _redraw_preview(
-            layer_idx    = int(float(_slider_cell[0].get())),
+            layer_idx    = _active_layer_idx,
             fig          = _fig_cell[0],
             canvas       = _canvas_cell[0],
             view_mode_var= view_mode_var,
-            layer_slider = _slider_cell[0],
             bed_w        = bw,
             bed_h        = bh,
         )
 
-    # Three radio buttons: "2D Top", "3D Interactive", "3D All Layers"
-    for mode_text in ("2D Top", "3D Interactive", "3D All Layers"):
+    mode_frame = ttk.Frame(left_inner)
+    mode_frame.pack(fill=X, pady=(0, 8))
+
+    for mode_text, icon in [("2D Top", "⊞"), ("3D Interactive", "⟳"), ("3D All Layers", "⊡")]:
         ttk.Radiobutton(
-            radio_frame,
-            text=mode_text,
+            mode_frame,
+            text=f"{icon}  {mode_text}",
             variable=view_mode_var,
             value=mode_text,
             bootstyle="info-toolbutton",
             command=_on_mode_change,
-        ).pack(side=LEFT, padx=(0, 6))
+        ).pack(fill=X, pady=(0, 3))
 
-    # ── Layer slider ───────────────────────────────────────────────────────────
-    slider_frame = ttk.Frame(outer)
-    slider_frame.grid(row=7, column=0, sticky=EW, pady=(0, 6))
-    slider_frame.columnconfigure(1, weight=1)
+    # ── 5. Layer Selection ────────────────────────────────────────────────────
+    section_label(left_inner, "Layers")
+    small_label(left_inner, "Click a button to select layer:")
 
-    ttk.Label(slider_frame, text="Layer:", foreground="#cccccc",
-              font=("Segoe UI", 10), width=7).grid(row=0, column=0, sticky=W)
+    layer_grid_frame = ttk.Frame(left_inner)
+    layer_grid_frame.pack(fill=X, pady=(4, 8))
+    _layer_grid_cell[0] = layer_grid_frame
 
-    layer_index_label = ttk.Label(slider_frame, text="–",
-                                  foreground="#aaaaaa", width=8, anchor=W)
+    # ── Separator ─────────────────────────────────────────────────────────────
+    ttk.Separator(left_inner, orient=HORIZONTAL).pack(fill=X, pady=(8, 8))
 
-    def _on_slider_change(val):
-        idx = int(float(val))
-        if _LATEST_LAYERS:
-            layer_index_label.config(
-                text=f"{idx} / {max(len(_LATEST_LAYERS) - 1, 0)}"
-            )
-        if not _LATEST_LAYERS or _fig_cell[0] is None:
-            return
-        # Guard: do not respond to slider drags while in "3D All Layers" mode.
-        # The slider is disabled in that mode but the callback can still fire
-        # programmatically (e.g. layer_slider.set(0) in _on_parsing_done).
-        if view_mode_var.get() == "3D All Layers":
-            return
-        try:
-            bw = float(bed_w_var.get()) if bed_w_var.get().strip() else None
-            bh = float(bed_h_var.get()) if bed_h_var.get().strip() else None
-        except ValueError:
-            bw = bh = None
-        _redraw_preview(
-            layer_idx    = idx,
-            fig          = _fig_cell[0],
-            canvas       = _canvas_cell[0],
-            view_mode_var= view_mode_var,
-            layer_slider = _slider_cell[0],
-            bed_w        = bw,
-            bed_h        = bh,
-        )
-
-    layer_slider = ttk.Scale(
-        slider_frame,
-        from_=0, to=0,
-        orient=HORIZONTAL,
-        state="disabled",
-        bootstyle="info",
-        command=_on_slider_change,
-    )
-    layer_slider.grid(row=0, column=1, sticky=EW, padx=(6, 6))
-    layer_index_label.grid(row=0, column=2, sticky=W)
-    _slider_cell[0] = layer_slider
-
-    # ── Convert button (row 8) ─────────────────────────────────────────────────
-    # The button is created here; its command is a lambda that closes over
-    # widgets created both above and below this point via the cell pattern.
+    # ── 6. Convert Button ─────────────────────────────────────────────────────
     convert_btn = ttk.Button(
-        outer,
-        text="Convert to PNG  +  Load Preview",
+        left_inner,
+        text="⚡  Convert to PNG + Load Preview",
         bootstyle="success",
         state="disabled",
-        padding=(16, 8),
+        padding=(10, 8),
     )
-    convert_btn.grid(row=8, column=0, pady=(0, 6))
+    convert_btn.pack(fill=X, pady=(0, 8))
     _btn_cell[0] = convert_btn
 
-    # Wire up command now that _btn_cell[0] is set (the lambda reads cells
-    # at call time, not at definition time, so forward references are fine)
+    # Wire up command
     def _convert_cmd():
         run_conversion(
             input_var, output_var,
@@ -873,31 +950,77 @@ def build_gui() -> ttk.Window:
             parse_and_preview_cb=lambda: _start_parse_and_preview(
                 input_var, bed_w_var, bed_h_var,
                 _btn_cell[0], _status_cell[0],
-                _slider_cell[0], _snap_cell[0],
+                _layer_grid_cell[0], _snap_cell[0],
                 _fig_cell[0], _canvas_cell[0],
                 view_mode_var, root,
             ),
         )
     convert_btn.config(command=_convert_cmd)
 
-    # ── Progress bar (row 9) ───────────────────────────────────────────────────
+    # ── Progress bar ──────────────────────────────────────────────────────────
     progress_bar = ttk.Progressbar(
-        outer, bootstyle="info-striped", mode="indeterminate")
-    progress_bar.grid(row=9, column=0, sticky=EW, pady=(0, 4))
+        left_inner, bootstyle="info-striped", mode="indeterminate")
+    progress_bar.pack(fill=X, pady=(0, 8))
 
-    # ── Matplotlib canvas frame (row 10, expands) ──────────────────────────────
-    canvas_frame = ttk.Frame(outer, relief="sunken", borderwidth=1)
-    canvas_frame.grid(row=10, column=0, sticky=NSEW, pady=(0, 6))
+    # ── 7. Action Buttons ─────────────────────────────────────────────────────
+    section_label(left_inner, "Actions")
+
+    snapshot_btn = ttk.Button(
+        left_inner,
+        text="💾  Save Snapshot",
+        bootstyle="secondary",
+        state="disabled",
+        padding=(8, 6),
+        command=lambda: _save_snapshot(
+            _fig_cell[0], output_var, _status_cell[0]),
+    )
+    snapshot_btn.pack(fill=X, pady=(0, 4))
+    _snap_cell[0] = snapshot_btn
+
+    ttk.Button(
+        left_inner,
+        text="📂  Open Output Folder",
+        bootstyle="secondary",
+        padding=(8, 6),
+        command=lambda: _open_folder(output_var.get()),
+    ).pack(fill=X, pady=(0, 4))
+
+    # ── Status label ──────────────────────────────────────────────────────────
+    ttk.Separator(left_inner, orient=HORIZONTAL).pack(fill=X, pady=(8, 8))
+    status_label = ttk.Label(
+        left_inner,
+        text="Ready",
+        foreground="#888888",
+        font=("Segoe UI", 9),
+        anchor=CENTER,
+        wraplength=250,
+    )
+    status_label.pack(fill=X, pady=(0, 4))
+    _status_cell[0] = status_label
+
+    # Ensure left_inner is properly sized
+    left_inner.update_idletasks()
+    left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+
+    # ── RIGHT COLUMN: Visualizer panel ────────────────────────────────────────
+    right_frame = ttk.Frame(main_pane, padding=(10, 15, 15, 15))
+
+    # Canvas frame with subtle border
+    canvas_frame = ttk.Frame(right_frame, relief="solid", borderwidth=1,
+                             bootstyle="dark")
+    canvas_frame.pack(fill=BOTH, expand=YES)
 
     # Initial placeholder figure
-    fig = Figure(figsize=(9, 5), facecolor='#1e1e2e')
+    fig = Figure(figsize=(10, 7), facecolor='#1e1e2e')
     _ax0 = fig.add_subplot(111)
     _ax0.set_facecolor('#1e1e2e')
     _ax0.set_title("Load a G-code file to see the preview",
-                   color='#555577', fontsize=11)
+                   color='#555577', fontsize=14)
     _ax0.tick_params(colors='#333355')
     for sp in _ax0.spines.values():
         sp.set_edgecolor('#333355')
+    # Add grid lines even for placeholder
+    _ax0.grid(True, color='#333355', linewidth=0.3, linestyle=':', alpha=0.5)
     _fig_cell[0] = fig
 
     # Embed canvas
@@ -911,38 +1034,9 @@ def build_gui() -> ttk.Window:
     toolbar_frame.pack(fill=X, side=BOTTOM)
     NavigationToolbar2Tk(canvas, toolbar_frame).update()
 
-    # ── Bottom button row (row 11) ─────────────────────────────────────────────
-    btn_row = ttk.Frame(outer)
-    btn_row.grid(row=11, column=0, sticky=EW, pady=(0, 4))
-
-    snapshot_btn = ttk.Button(
-        btn_row,
-        text="💾  Save Snapshot",
-        bootstyle="secondary",
-        state="disabled",
-        command=lambda: _save_snapshot(
-            _fig_cell[0], output_var, _status_cell[0]),
-    )
-    snapshot_btn.pack(side=LEFT, padx=(0, 10))
-    _snap_cell[0] = snapshot_btn
-
-    ttk.Button(
-        btn_row,
-        text="📂  Open Output Folder",
-        bootstyle="secondary",
-        command=lambda: _open_folder(output_var.get()),
-    ).pack(side=LEFT)
-
-    # ── Status label (row 12) ─────────────────────────────────────────────────
-    status_label = ttk.Label(
-        outer,
-        text="Ready",
-        foreground="#888888",
-        font=("Segoe UI", 10),
-        anchor=CENTER,
-    )
-    status_label.grid(row=12, column=0, sticky=EW, pady=(0, 2))
-    _status_cell[0] = status_label
+    # ── Add both frames to the Panedwindow ────────────────────────────────────
+    main_pane.add(left_frame, weight=1)
+    main_pane.add(right_frame, weight=4)
 
     # ── Reactive convert-button enable/disable ────────────────────────────────
     input_var.trace_add("write",
@@ -950,7 +1044,7 @@ def build_gui() -> ttk.Window:
     output_var.trace_add("write",
         lambda *_: _update_convert_btn(input_var, output_var, convert_btn))
 
-    # ── Drag-and-drop (wired after all widgets exist) ─────────────────────────
+    # ── Drag-and-drop ─────────────────────────────────────────────────────────
     if DND_AVAILABLE:
         input_entry.drop_target_register(DND_FILES)
         input_entry.dnd_bind(
@@ -961,7 +1055,7 @@ def build_gui() -> ttk.Window:
                 trigger_parse_cb=lambda: _start_parse_and_preview(
                     input_var, bed_w_var, bed_h_var,
                     _btn_cell[0], _status_cell[0],
-                    _slider_cell[0], _snap_cell[0],
+                    _layer_grid_cell[0], _snap_cell[0],
                     _fig_cell[0], _canvas_cell[0],
                     view_mode_var, root,
                 ),
