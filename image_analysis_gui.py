@@ -70,7 +70,7 @@ def build_image_analysis_gui() -> ttk.Window:
 
     # ── StringVars / other vars ───────────────────────────────────────────────
     outdir_var    = tk.StringVar(value=os.path.join(os.path.expanduser("~"), "line_width_results"))
-    scale_var     = tk.StringVar(value="1.0")
+    scale_var     = tk.StringVar(value="4x")          # default to 4×
     thresh_var    = tk.StringVar(value="200")
     orient_var    = tk.StringVar(value="vertical")
     smooth_var    = tk.StringVar(value="0")
@@ -236,7 +236,22 @@ def build_image_analysis_gui() -> ttk.Window:
         ).pack(side=LEFT)
         ttk.Entry(row, textvariable=var, width=width).pack(side=LEFT, fill=X, expand=YES)
 
-    _param_row("Scale (mm / pixel):",  scale_var)
+    # ── Scale: replaced with a dropdown ───────────────────────────────────────
+    scale_row = ttk.Frame(left_inner)
+    scale_row.pack(fill=X, pady=(0, 5))
+    ttk.Label(
+        scale_row, text="Scale (µm/px):",
+        font=("Segoe UI", 9), foreground="#aaaaaa", width=22, anchor=W,
+    ).pack(side=LEFT)
+    scale_combo = ttk.Combobox(
+        scale_row,
+        textvariable=scale_var,
+        values=["4x", "5x"],
+        state="readonly",
+        width=12,
+    )
+    scale_combo.pack(side=LEFT, fill=X, expand=YES)
+
     _param_row("Threshold (0–255):",   thresh_var)
     _param_row("Smoothing window:",    smooth_var)
     _param_row("Overlap (px):",        overlap_var)
@@ -384,10 +399,10 @@ def build_image_analysis_gui() -> ttk.Window:
             _set_status(_status_cell[0], "No images selected.", "red")
             return
 
-        scale = _try_float(scale_var.get(), 1.0)
-        if scale <= 0:
-            _set_status(_status_cell[0], "Scale must be > 0.", "red")
-            return
+        # Mapping from label to µm/px scale factor
+        scale_map = {"4x": 0.8075, "5x": 0.6408}
+        selected  = scale_var.get()
+        scale     = scale_map.get(selected, 0.8075)   # fallback to 4× if unknown
 
         analyze_btn.config(state="disabled")
         save_btn.config(state="disabled")
