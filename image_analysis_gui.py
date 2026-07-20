@@ -75,7 +75,7 @@ def build_image_analysis_gui() -> ttk.Window:
     orient_var    = tk.StringVar(value="vertical")
     smooth_var    = tk.StringVar(value="0")
     overlap_var   = tk.StringVar(value="0")
-    unit_var      = tk.StringVar(value="um")
+    unit_var      = tk.StringVar(value="mm")
 
     # forward references (mutable cells)
     _analyze_btn_cell  = [None]
@@ -236,7 +236,7 @@ def build_image_analysis_gui() -> ttk.Window:
         ).pack(side=LEFT)
         ttk.Entry(row, textvariable=var, width=width).pack(side=LEFT, fill=X, expand=YES)
 
-    _param_row("Scale (µm / pixel):",  scale_var)
+    _param_row("Scale (mm / pixel):",  scale_var)
     _param_row("Threshold (0–255):",   thresh_var)
     _param_row("Smoothing window:",    smooth_var)
     _param_row("Overlap (px):",        overlap_var)
