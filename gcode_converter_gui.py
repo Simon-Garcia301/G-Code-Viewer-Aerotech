@@ -26,9 +26,17 @@ import mpl_toolkits.mplot3d  # noqa: F401
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
+DND_AVAILABLE = False
 try:
     from tkinterdnd2 import TkinterDnD, DND_FILES
-    DND_AVAILABLE = True
+    try:
+        # Test if tkdnd is actually working
+        test_root = tk.Tk()
+        test_root.tk.eval('package require tkdnd')
+        test_root.destroy()
+        DND_AVAILABLE = True
+    except:
+        DND_AVAILABLE = False
 except ImportError:
     DND_AVAILABLE = False
 
@@ -752,21 +760,24 @@ def build_gui(root: ttk.Window) -> None:
     output_var.trace_add("write", lambda *_: _update_convert_btn(input_var, output_var, convert_btn))
 
     if DND_AVAILABLE:
-        input_entry.drop_target_register(DND_FILES)
-        input_entry.dnd_bind(
-            "<<Drop>>",
-            lambda e: on_file_drop(
-                e, input_var, output_var,
-                input_entry, output_entry, convert_btn,
-                trigger_parse_cb=lambda: _start_parse_and_preview(
-                    input_var, bed_w_var, bed_h_var,
-                    _btn_cell[0], _status_cell[0],
-                    _layer_grid_cell[0], _snap_cell[0],
-                    _fig_cell[0], _canvas_cell[0],
-                    view_mode_var, root,
+        try:
+            input_entry.drop_target_register(DND_FILES)
+            input_entry.dnd_bind(
+                "<<Drop>>",
+                lambda e: on_file_drop(
+                    e, input_var, output_var,
+                    input_entry, output_entry, convert_btn,
+                    trigger_parse_cb=lambda: _start_parse_and_preview(
+                        input_var, bed_w_var, bed_h_var,
+                        _btn_cell[0], _status_cell[0],
+                        _layer_grid_cell[0], _snap_cell[0],
+                        _fig_cell[0], _canvas_cell[0],
+                        view_mode_var, root,
+                    ),
                 ),
-            ),
-        )
+            )
+        except Exception as e:
+            print(f"Drag-and-drop initialization failed: {e}")
 
     # Add return to menu handler
     root.protocol("WM_DELETE_WINDOW", lambda: _start_menu())
