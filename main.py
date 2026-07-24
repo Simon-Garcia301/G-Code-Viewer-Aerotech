@@ -29,13 +29,16 @@ menu_root = None
 def _launch_and_return(build_func, tool_name: str) -> None:
     """Close the menu window, execute the selected tool, and re-open menu upon return."""
     global menu_root
-    if menu_root:
-        menu_root.withdraw()  # Hide instead of destroy
+    if not menu_root:
+        return
 
     try:
-        app_root = build_func()
-        app_root.protocol("WM_DELETE_WINDOW", lambda: _on_tool_close(app_root))
-        app_root.mainloop()
+        # Clear current menu widgets but keep root window
+        for widget in menu_root.winfo_children():
+            widget.destroy()
+        
+        # Rebuild as the tool GUI using same root window
+        build_func(menu_root)
     except Exception as err:
         messagebox.showerror(
             "Tool Launch Error",
@@ -44,15 +47,28 @@ def _launch_and_return(build_func, tool_name: str) -> None:
         if menu_root:
             menu_root.deiconify()  # Show menu again if error occurred
 
-def _on_tool_close(tool_window):
-    """Handle tool window closure by quitting it and showing menu again."""
+def _start_menu(root: ttk.Window = None) -> None:
+    """(Re)build the main menu in the given root window"""
     global menu_root
-    tool_window.quit()
-    tool_window.destroy()
-    if menu_root:
-        menu_root.deiconify()
+    
+    if root is None:
+        root = ttk.Window(
+            title="Lee Research Group — Tool Suite",
+            themename="darkly",
+            size=(620, 480),
+            resizable=(False, False),
+        )
+    else:
+        # Clear existing widgets if reusing window
+        for widget in root.winfo_children():
+            widget.destroy()
+        
+        # Reset window geometry for menu
+        root.geometry("620x480")
+        root.minsize(620, 480)
+        root.resizable(False, False)
 
-def _start_menu():
+    menu_root = root
     global menu_root
 
     menu_root = ttk.Window(

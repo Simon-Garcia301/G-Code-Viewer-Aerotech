@@ -578,14 +578,11 @@ def _save_snapshot(fig: Figure, output_var, status_label) -> None:
     except Exception as exc:
         set_status(status_label, f"Save failed: {exc}", "error")
 
-def build_gui(root: ttk.Window = None) -> ttk.Window:
-    if root is None:
-        root = ttk.Window(
-            title="Lee Research Lab — G-Code Converter & Visualizer",
-            themename="darkly",
-            size=(1400, 900),
-            resizable=(True, True),
-        )
+def build_gui(root: ttk.Window) -> None:
+    """Build the G-Code converter GUI in the provided root window"""
+    root.title("Lee Research Lab — G-Code Converter & Visualizer")
+    root.geometry("1400x900")
+    root.minsize(1200, 800)
 
     load_app_icon(root)
 
@@ -771,10 +768,19 @@ def build_gui(root: ttk.Window = None) -> ttk.Window:
             ),
         )
 
-    return root
+    # Add return to menu handler
+    root.protocol("WM_DELETE_WINDOW", lambda: _start_menu())
 
 def main():
-    build_gui().mainloop()
+    """Standalone entry point that creates its own root window"""
+    root = ttk.Window(
+        title="Lee Research Lab — G-Code Converter & Visualizer",
+        themename="darkly",
+        size=(1400, 900),
+        resizable=(True, True),
+    )
+    build_gui(root)
+    root.mainloop()
 
 if __name__ == "__main__":
     main()
