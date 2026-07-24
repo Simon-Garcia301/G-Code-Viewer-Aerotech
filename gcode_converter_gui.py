@@ -3,19 +3,17 @@
 gcode_converter_gui.py
 ━━━━━━━━━━━━━━━━━━━━━━
 Desktop GUI front-end for the Aerotech G-Code → PNG converter.
-Includes an interactive 2-D / 3-D layer preview via Matplotlib/TkAgg.
-Redesigned with a modern two-column layout.
+Refactored to consume ui_common shared components, styling, header, and footer.
 """
 
 import os
 import threading
 import subprocess
-
 import tkinter as tk
 from tkinter import filedialog
 
 import matplotlib
-matplotlib.use('TkAgg')          # must be set before any other matplotlib import
+matplotlib.use('TkAgg')
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
@@ -23,7 +21,7 @@ from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
-import mpl_toolkits.mplot3d       # noqa: F401 — registers the '3d' projection
+import mpl_toolkits.mplot3d  # noqa: F401
 
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
@@ -40,22 +38,27 @@ from gcode_engine import (
     parse_gcode_to_layers,
     PrintLayer,
 )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  MODULE-LEVEL STATE
-# ══════════════════════════════════════════════════════════════════════════════
+from ui_common import (
+    make_app_header,
+    make_app_footer,
+    make_scrollable_left_panel,
+    make_titled_panel,
+    section_label,
+    small_label,
+    make_status_label,
+    set_status,
+    make_progress_bar,
+    make_action_button,
+    attach_tooltip,
+    load_app_icon,
+    show_about_dialog,
+)
 
 _output_manually_set: bool = False
-_last_browse_dir:     str  = os.path.expanduser("~")
-_LATEST_LAYERS:       list = []   # list[PrintLayer], filled after parsing
-_layer_buttons:       list = []   # list of ttk.Button for layer grid
-_active_layer_idx:    int  = 0    # currently selected layer index
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  HELPERS
-# ══════════════════════════════════════════════════════════════════════════════
+_last_browse_dir: str = os.path.expanduser("~")
+_LATEST_LAYERS: list = []
+_layer_buttons: list = []
+_active_layer_idx: int = 0
 
 def _set_entry(widget: ttk.Entry, text: str) -> None:
     widget.config(state="normal")
@@ -63,32 +66,18 @@ def _set_entry(widget: ttk.Entry, text: str) -> None:
     widget.insert(0, text)
     widget.config(state="readonly")
 
-
-def _set_status(label: ttk.Label, text: str, colour: str = "#888888") -> None:
-    label.config(text=text, foreground=colour)
-
-
 def _open_folder(path: str) -> None:
     if os.path.isdir(path):
-        subprocess.Popen(f'explorer "{path}"')
-
+        subprocess.Popen(f'explorer "{os.path.normpath(path)}"')
 
 def _update_convert_btn(input_var, output_var, btn) -> None:
-    btn.config(
-        state="normal" if (input_var.get() and output_var.get()) else "disabled"
-    )
-
+    btn.config(state="normal" if (input_var.get() and output_var.get()) else "disabled")
 
 def _clean_dnd_path(raw: str) -> str:
     path = raw.strip()
     if path.startswith("{") and path.endswith("}"):
         path = path[1:-1]
     return path
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  BROWSE CALLBACKS
-# ══════════════════════════════════════════════════════════════════════════════
 
 def browse_input(input_var, output_var, input_entry, output_entry, btn):
     global _last_browse_dir, _output_manually_set
@@ -112,7 +101,6 @@ def browse_input(input_var, output_var, input_entry, output_entry, btn):
         output_var.set(folder)
     _update_convert_btn(input_var, output_var, btn)
 
-
 def browse_output(input_var, output_var, output_entry, btn):
     global _last_browse_dir, _output_manually_set
     folder = filedialog.askdirectory(
@@ -122,22 +110,16 @@ def browse_output(input_var, output_var, output_entry, btn):
     if not folder:
         return
     folder = os.path.normpath(folder)
-    _last_browse_dir     = folder
+    _last_browse_dir = folder
     _output_manually_set = True
     _set_entry(output_entry, folder)
     output_var.set(folder)
     _update_convert_btn(input_var, output_var, btn)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  DRAG-AND-DROP
-# ══════════════════════════════════════════════════════════════════════════════
-
-def on_file_drop(event, input_var, output_var, input_entry, output_entry,
-                 btn, trigger_parse_cb):
+def on_file_drop(event, input_var, output_var, input_entry, output_entry, btn, trigger_parse_cb):
     global _output_manually_set
     path = _clean_dnd_path(event.data)
-    ext  = os.path.splitext(path)[1].lower()
+    ext = os.path.splitext(path)[1].lower()
     if ext not in (".gcode", ".nc", ".gco", ".cnc", ".txt", ".ascript"):
         return
     path = os.path.normpath(path)
@@ -150,11 +132,6 @@ def on_file_drop(event, input_var, output_var, input_entry, output_entry,
     _update_convert_btn(input_var, output_var, btn)
     trigger_parse_cb()
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  STATIC PNG CONVERSION
-# ══════════════════════════════════════════════════════════════════════════════
-
 def run_conversion(
     input_var, output_var,
     bed_w_var, bed_h_var,
@@ -162,25 +139,25 @@ def run_conversion(
     status_label, root,
     parse_and_preview_cb,
 ):
-    gcode_path    = input_var.get().strip()
+    gcode_path = input_var.get().strip()
     output_folder = output_var.get().strip()
 
-    if not gcode_path:
-        _set_status(status_label, "Error: No input file selected.", "red"); return
-    if not os.path.isfile(gcode_path):
-        _set_status(status_label, "Error: File not found.", "red"); return
+    if not gcode_path or not os.path.isfile(gcode_path):
+        set_status(status_label, "Error: Valid G-code file required.", "error")
+        return
     if not output_folder:
-        _set_status(status_label, "Error: No output folder selected.", "red"); return
+        set_status(status_label, "Error: Select an output folder.", "error")
+        return
 
     try:
         bed_w = float(bed_w_var.get()) if bed_w_var.get().strip() else None
         bed_h = float(bed_h_var.get()) if bed_h_var.get().strip() else None
     except ValueError:
-        _set_status(status_label, "Error: Bed dimensions must be numbers.", "red")
+        set_status(status_label, "Error: Bed dimensions must be numeric.", "error")
         return
 
     convert_btn.config(state="disabled")
-    _set_status(status_label, "Converting to PNG…", "#f0c040")
+    set_status(status_label, "Converting G-code to PNG...", "warning")
     progress_bar.start(12)
 
     threading.Thread(
@@ -191,35 +168,23 @@ def run_conversion(
         daemon=True,
     ).start()
 
-
 def _png_worker(gcode_path, output_folder, bed_w, bed_h,
                 convert_btn, progress_bar, status_label, root,
                 parse_and_preview_cb):
-    result = convert_gcode_to_png(gcode_path, output_folder,
-                                  bed_w=bed_w, bed_h=bed_h)
+    result = convert_gcode_to_png(gcode_path, output_folder, bed_w=bed_w, bed_h=bed_h)
     root.after(0, _png_done, result, output_folder,
                convert_btn, progress_bar, status_label, parse_and_preview_cb)
-
 
 def _png_done(result, output_folder, convert_btn, progress_bar,
               status_label, parse_and_preview_cb):
     progress_bar.stop()
     progress_bar["value"] = 0
     if result == "SUCCESS":
-        _set_status(
-            status_label,
-            f"PNG saved to: {output_folder}  — loading interactive preview…",
-            "#44dd88",
-        )
+        set_status(status_label, f"PNG saved to: {output_folder} — loading layer preview...", "success")
         parse_and_preview_cb()
     else:
-        _set_status(status_label, result, "red")
+        set_status(status_label, result, "error")
         convert_btn.config(state="normal")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  LAYERED PARSE + INTERACTIVE PREVIEW
-# ══════════════════════════════════════════════════════════════════════════════
 
 def _start_parse_and_preview(
     input_var, bed_w_var, bed_h_var,
@@ -228,20 +193,19 @@ def _start_parse_and_preview(
     fig, canvas, view_mode_var,
     root,
 ):
-    """Validate inputs, then launch the background parse thread."""
     gcode_path = input_var.get().strip()
     if not gcode_path or not os.path.isfile(gcode_path):
-        _set_status(status_label, "Error: No valid input file.", "red")
+        set_status(status_label, "Error: Valid G-code file required.", "error")
         return
 
     try:
         bed_w = float(bed_w_var.get()) if bed_w_var.get().strip() else None
         bed_h = float(bed_h_var.get()) if bed_h_var.get().strip() else None
     except ValueError:
-        bed_w = bed_h = None   # preview continues without bed outline
+        bed_w = bed_h = None
 
     convert_btn.config(state="disabled")
-    _set_status(status_label, "Parsing G-code…", "#f0c040")
+    set_status(status_label, "Parsing G-code layers...", "warning")
 
     threading.Thread(
         target=_parse_worker,
@@ -252,18 +216,16 @@ def _start_parse_and_preview(
         daemon=True,
     ).start()
 
-
 def _parse_worker(
     gcode_path, bed_w, bed_h,
     convert_btn, status_label,
     layer_grid_frame, snapshot_btn,
     fig, canvas, view_mode_var, root,
 ):
-    """Background thread: parse, then schedule UI update on the main thread."""
     try:
         with open(gcode_path, 'r', encoding='utf-8', errors='replace') as fh:
             raw = fh.read()
-        lines         = preprocess(raw)
+        lines = preprocess(raw)
         layers, state = parse_gcode_to_layers(lines)
         root.after(
             0, _on_parsing_done,
@@ -279,91 +241,63 @@ def _parse_worker(
             convert_btn, status_label,
         )
 
-
 def _on_parsing_done(
     layers, bed_w, bed_h, state,
     convert_btn, status_label,
     layer_grid_frame, snapshot_btn,
     fig, canvas, view_mode_var,
 ):
-    """Main-thread callback: update all widgets after successful parse."""
-    global _LATEST_LAYERS, _layer_buttons, _active_layer_idx
+    global _LATEST_LAYERS, _active_layer_idx
     _LATEST_LAYERS = layers
     _active_layer_idx = 0
 
     if not layers:
-        _on_parsing_error(
-            "Warning: No motion data found in file.",
-            convert_btn, status_label,
-        )
+        _on_parsing_error("Warning: No motion data found in file.", convert_btn, status_label)
         return
 
-    # Always reset to "2D Top" on a fresh load
     view_mode_var.set("2D Top")
-
-    # Rebuild layer buttons
     _rebuild_layer_buttons(layer_grid_frame, fig, canvas, view_mode_var, bed_w, bed_h, state)
 
-    # Resolve bed dimensions
     try:
         bw = float(bed_w) if bed_w is not None else None
         bh = float(bed_h) if bed_h is not None else None
     except (TypeError, ValueError):
         bw = bh = None
 
-    # Render layer 0 in 2D Top mode
     _redraw_preview(
-        layer_idx    = 0,
-        fig          = fig,
-        canvas       = canvas,
-        view_mode_var= view_mode_var,
-        bed_w        = bw,
-        bed_h        = bh,
-        unit_label   = "mm" if state.unit_mm else "in",
+        layer_idx=0,
+        fig=fig,
+        canvas=canvas,
+        view_mode_var=view_mode_var,
+        bed_w=bw,
+        bed_h=bh,
+        unit_label="mm" if state.unit_mm else "in",
     )
 
     snapshot_btn.config(state="normal")
     convert_btn.config(state="normal")
-    _set_status(
-        status_label,
-        f"Ready — {len(layers)} layer(s) loaded.  Interactive preview active.",
-        "#44dd88",
-    )
-
+    set_status(status_label, f"Ready — {len(layers)} layer(s) loaded. Interactive preview active.", "success")
 
 def _on_parsing_error(message, convert_btn, status_label):
-    """Main-thread callback: show error and re-enable the convert button."""
-    _set_status(status_label, message, "red")
+    set_status(status_label, message, "error")
     convert_btn.config(state="normal")
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  LAYER BUTTON GRID
-# ══════════════════════════════════════════════════════════════════════════════
-
 def _rebuild_layer_buttons(parent_frame, fig, canvas, view_mode_var, bed_w, bed_h, state):
-    """Destroy old buttons and create a new grid of layer buttons."""
     global _layer_buttons, _LATEST_LAYERS, _active_layer_idx
 
-    # Clear existing buttons
     for btn in _layer_buttons:
         btn.destroy()
     _layer_buttons.clear()
 
-    # Also clear any existing children in the parent frame
     for child in parent_frame.winfo_children():
         child.destroy()
 
     n_layers = len(_LATEST_LAYERS)
     if n_layers == 0:
-        ttk.Label(parent_frame, text="No layers", foreground="#666666",
-                  font=("Segoe UI", 9)).pack(pady=10)
+        small_label(parent_frame, "No layer data")
         return
 
     cols = 5
-    n_layers = len(_LATEST_LAYERS)
-
-    # Create a frame for the grid
     grid_inner = ttk.Frame(parent_frame)
     grid_inner.pack(fill=BOTH, expand=True)
 
@@ -384,27 +318,16 @@ def _rebuild_layer_buttons(parent_frame, fig, canvas, view_mode_var, bed_w, bed_
         btn.grid(row=row, column=col, padx=2, pady=2, sticky="ew")
         _layer_buttons.append(btn)
 
-    # Configure grid weights
     for c in range(cols):
         grid_inner.columnconfigure(c, weight=1)
 
-    # Highlight the active layer
     _highlight_layer_button(_active_layer_idx)
 
-    # Tooltip-like label showing Z height range
     z_min = min(l.z for l in _LATEST_LAYERS)
     z_max = max(l.z for l in _LATEST_LAYERS)
-    z_info = ttk.Label(
-        parent_frame,
-        text=f"Z: {z_min:.2f} – {z_max:.2f} {('mm' if state.unit_mm else 'in')}",
-        foreground="#888888",
-        font=("Segoe UI", 8),
-    )
-    z_info.pack(pady=(5, 0))
-
+    small_label(parent_frame, f"Z Range: {z_min:.2f} – {z_max:.2f} {('mm' if state.unit_mm else 'in')}")
 
 def _highlight_layer_button(layer_idx):
-    """Update button styles to highlight the active layer."""
     global _layer_buttons, _active_layer_idx
     _active_layer_idx = layer_idx
     for i, btn in enumerate(_layer_buttons):
@@ -413,18 +336,13 @@ def _highlight_layer_button(layer_idx):
         else:
             btn.configure(bootstyle="secondary-outline")
 
-
 def _on_layer_button_click(layer_idx, fig, canvas, view_mode_var, bed_w, bed_h, state):
-    """Handle layer button click."""
     global _LATEST_LAYERS, _active_layer_idx
     if not _LATEST_LAYERS or layer_idx >= len(_LATEST_LAYERS):
         return
 
     _active_layer_idx = layer_idx
-
-    mode = view_mode_var.get()
-    if mode == "3D All Layers":
-        # In all-layers mode, clicking a layer button switches to 2D Top
+    if view_mode_var.get() == "3D All Layers":
         view_mode_var.set("2D Top")
 
     try:
@@ -434,37 +352,29 @@ def _on_layer_button_click(layer_idx, fig, canvas, view_mode_var, bed_w, bed_h, 
         bw = bh = None
 
     _redraw_preview(
-        layer_idx    = layer_idx,
-        fig          = fig,
-        canvas       = canvas,
-        view_mode_var= view_mode_var,
-        bed_w        = bw,
-        bed_h        = bh,
-        unit_label   = "mm" if state.unit_mm else "in",
+        layer_idx=layer_idx,
+        fig=fig,
+        canvas=canvas,
+        view_mode_var=view_mode_var,
+        bed_w=bw,
+        bed_h=bh,
+        unit_label="mm" if state.unit_mm else "in",
     )
-
     _highlight_layer_button(layer_idx)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  REDRAW  (called from main thread only)
-# ══════════════════════════════════════════════════════════════════════════════
-
 def _redraw_preview(
-    layer_idx     = None,
-    fig           = None,
-    canvas        = None,
-    view_mode_var = None,
-    bed_w         = None,
-    bed_h         = None,
-    unit_label    = "mm",
+    layer_idx=None,
+    fig=None,
+    canvas=None,
+    view_mode_var=None,
+    bed_w=None,
+    bed_h=None,
+    unit_label="mm",
 ):
-    """Clear *fig*, draw the requested layer/all-layers, and refresh *canvas*."""
     if not _LATEST_LAYERS:
         return
 
     mode = view_mode_var.get() if view_mode_var is not None else "2D Top"
-
     fig.clear()
     fig.patch.set_facecolor('#1e1e2e')
 
@@ -472,11 +382,10 @@ def _redraw_preview(
         ax = fig.add_subplot(111, projection='3d')
         _draw_3d_all_layers(ax, bed_w, bed_h, unit_label)
     else:
-        # Resolve index for single-layer modes
         if layer_idx is None:
             layer_idx = 0
         layer_idx = max(0, min(layer_idx, len(_LATEST_LAYERS) - 1))
-        layer     = _LATEST_LAYERS[layer_idx]
+        layer = _LATEST_LAYERS[layer_idx]
 
         if mode == "3D Interactive":
             ax = fig.add_subplot(111, projection='3d')
@@ -488,33 +397,25 @@ def _redraw_preview(
     fig.tight_layout()
     canvas.draw()
 
-
-# ── 2-D draw ──────────────────────────────────────────────────────────────────
-
 def _draw_2d(ax, layer: PrintLayer, bed_w, bed_h, unit_label, layer_idx):
     ax.set_facecolor('#1e1e2e')
     ax.set_title(
-        f"Layer {layer_idx}  –  Z = {layer.z:.4f} {unit_label}  [2D Top View]",
+        f"Layer {layer_idx + 1}  –  Z = {layer.z:.4f} {unit_label}  [2D Top View]",
         color='#eeeeff', fontsize=12, fontweight='bold', pad=8,
     )
 
-    # Travel segments
     for seg in layer.travel_segments:
         if len(seg) < 2:
             continue
         xs, ys = zip(*seg)
-        ax.plot(xs, ys, color='#888888', linewidth=0.9,
-                linestyle='--', alpha=0.55, zorder=2)
+        ax.plot(xs, ys, color='#888888', linewidth=0.9, linestyle='--', alpha=0.55, zorder=2)
 
-    # Print segments
     for seg in layer.print_segments:
         if len(seg) < 2:
             continue
         xs, ys = zip(*seg)
-        ax.plot(xs, ys, color='#ff8844', linewidth=1.6,
-                solid_capstyle='round', zorder=3)
+        ax.plot(xs, ys, color='#ff8844', linewidth=1.6, solid_capstyle='round', zorder=3)
 
-    # Bed outline
     if bed_w is not None and bed_h is not None:
         import matplotlib.patches as mpatches
         rect = mpatches.Rectangle(
@@ -524,23 +425,16 @@ def _draw_2d(ax, layer: PrintLayer, bed_w, bed_h, unit_label, layer_idx):
         )
         ax.add_patch(rect)
 
-    # Legend
     handles = [
-        Line2D([0], [0], color='#888888', linewidth=1.0, linestyle='--',
-               label='Travel (G0)'),
-        Line2D([0], [0], color='#ff8844', linewidth=2.0,
-               label='Print (G1/G2/G3)'),
+        Line2D([0], [0], color='#888888', linewidth=1.0, linestyle='--', label='Travel (G0)'),
+        Line2D([0], [0], color='#ff8844', linewidth=2.0, label='Print (G1/G2/G3)'),
     ]
     if bed_w is not None and bed_h is not None:
         handles.append(
-            Line2D([0], [0], color='#66aaff', linewidth=1.4, linestyle='--',
-                   label=f'Bed ({bed_w}×{bed_h} {unit_label})')
+            Line2D([0], [0], color='#66aaff', linewidth=1.4, linestyle='--', label=f'Bed ({bed_w}×{bed_h} {unit_label})')
         )
-    ax.legend(handles=handles, loc='upper right',
-              facecolor='#2a2a3e', edgecolor='#666688',
-              labelcolor='#cccccc', fontsize=8)
+    ax.legend(handles=handles, loc='upper right', facecolor='#2a2a3e', edgecolor='#666688', labelcolor='#cccccc', fontsize=8)
 
-    # Axis styling
     ax.grid(True, color='#444466', linewidth=0.4, linestyle=':', alpha=0.7)
     ax.tick_params(colors='#cccccc')
     for spine in ax.spines.values():
@@ -549,47 +443,35 @@ def _draw_2d(ax, layer: PrintLayer, bed_w, bed_h, unit_label, layer_idx):
     ax.set_ylabel(f"Y ({unit_label})", color='#cccccc', fontsize=10)
     ax.set_aspect('equal', adjustable='datalim')
 
-
-# ── 3-D draw (single layer) ───────────────────────────────────────────────────
-
 def _draw_3d(ax, layer: PrintLayer, bed_w, bed_h, unit_label, layer_idx):
     ax.set_facecolor('#1e1e2e')
     ax.set_title(
-        f"Layer {layer_idx}  –  Z = {layer.z:.4f} {unit_label}  [3D Interactive]",
+        f"Layer {layer_idx + 1}  –  Z = {layer.z:.4f} {unit_label}  [3D Interactive]",
         color='#eeeeff', fontsize=12, fontweight='bold', pad=8,
     )
 
     z_val = layer.z
-
-    # Travel segments
     for seg in layer.travel_segments:
         if len(seg) < 2:
             continue
         xs, ys = zip(*seg)
-        zs     = [z_val] * len(xs)
-        ax.plot(xs, ys, zs, color='#888888', linewidth=0.9,
-                linestyle='--', alpha=0.55)
+        zs = [z_val] * len(xs)
+        ax.plot(xs, ys, zs, color='#888888', linewidth=0.9, linestyle='--', alpha=0.55)
 
-    # Print segments
     for seg in layer.print_segments:
         if len(seg) < 2:
             continue
         xs, ys = zip(*seg)
-        zs     = [z_val] * len(xs)
-        ax.plot(xs, ys, zs, color='#ff8844', linewidth=1.6,
-                solid_capstyle='round')
+        zs = [z_val] * len(xs)
+        ax.plot(xs, ys, zs, color='#ff8844', linewidth=1.6, solid_capstyle='round')
 
-    # Bed outline at Z = 0
     if bed_w is not None and bed_h is not None:
-        bx = [0, bed_w, bed_w,    0, 0]
-        by = [0,     0, bed_h, bed_h, 0]
-        bz = [0,     0,     0,     0, 0]
+        bx = [0, bed_w, bed_w, 0, 0]
+        by = [0, 0, bed_h, bed_h, 0]
+        bz = [0, 0, 0, 0, 0]
         ax.plot(bx, by, bz, color='#66aaff', linewidth=1.4, linestyle='--')
 
-    # Viewpoint
     ax.view_init(elev=25, azim=-60)
-
-    # Axis styling
     ax.set_xlabel(f"X ({unit_label})", color='#cccccc', fontsize=9)
     ax.set_ylabel(f"Y ({unit_label})", color='#cccccc', fontsize=9)
     ax.set_zlabel(f"Z ({unit_label})", color='#cccccc', fontsize=9)
@@ -597,33 +479,24 @@ def _draw_3d(ax, layer: PrintLayer, bed_w, bed_h, unit_label, layer_idx):
     ax.xaxis.pane.fill = False
     ax.yaxis.pane.fill = False
     ax.zaxis.pane.fill = False
-    ax.xaxis.pane.set_edgecolor('#444466')
-    ax.yaxis.pane.set_edgecolor('#444466')
-    ax.zaxis.pane.set_edgecolor('#444466')
     ax.grid(True, color='#444466', linewidth=0.3, linestyle=':')
 
-
-# ── 3-D draw (all layers stacked) ────────────────────────────────────────────
 def _draw_3d_all_layers(ax, bed_w, bed_h, unit_label):
     global _LATEST_LAYERS
-
     n_layers = len(_LATEST_LAYERS)
     if n_layers == 0:
         return
 
-    # ── Colormap ──────────────────────────────────────────────────────────
     cmap = plt.get_cmap('plasma')
     norm = mcolors.Normalize(vmin=0, vmax=max(n_layers - 1, 1))
     layer_rgba = [cmap(norm(i)) for i in range(n_layers)]
 
-    # ── Collect all points to compute bounding box ────────────────────────
     all_x, all_y, all_z = [], [], []
 
     for i, layer in enumerate(_LATEST_LAYERS):
         z_val = layer.z
         color = layer_rgba[i]
 
-        # Travel segments
         for seg in layer.travel_segments:
             if len(seg) < 2:
                 continue
@@ -632,11 +505,8 @@ def _draw_3d_all_layers(ax, bed_w, bed_h, unit_label):
             all_x.extend(xs)
             all_y.extend(ys)
             all_z.extend(zs)
-            ax.plot(xs, ys, zs,
-                    color='#888888', linewidth=0.7,
-                    linestyle='--', alpha=0.40)
+            ax.plot(xs, ys, zs, color='#888888', linewidth=0.7, linestyle='--', alpha=0.40)
 
-        # Print segments
         for seg in layer.print_segments:
             if len(seg) < 2:
                 continue
@@ -645,21 +515,17 @@ def _draw_3d_all_layers(ax, bed_w, bed_h, unit_label):
             all_x.extend(xs)
             all_y.extend(ys)
             all_z.extend(zs)
-            ax.plot(xs, ys, zs,
-                    color=color, linewidth=1.4,
-                    solid_capstyle='round', alpha=0.85)
+            ax.plot(xs, ys, zs, color=color, linewidth=1.4, solid_capstyle='round', alpha=0.85)
 
-    # ── Bed outline at Z=0 ────────────────────────────────────────────────
     if bed_w is not None and bed_h is not None:
-        bx = [0, bed_w, bed_w,    0, 0]
-        by = [0,     0, bed_h, bed_h, 0]
-        bz = [0,     0,     0,     0, 0]
+        bx = [0, bed_w, bed_w, 0, 0]
+        by = [0, 0, bed_h, bed_h, 0]
+        bz = [0, 0, 0, 0, 0]
         ax.plot(bx, by, bz, color='#66aaff', linewidth=1.4, linestyle='--')
         all_x.extend([0, bed_w])
         all_y.extend([0, bed_h])
         all_z.extend([0])
 
-    # ── Set axis limits from collected data ───────────────────────────────
     if all_x:
         x_min, x_max = min(all_x), max(all_x)
         y_min, y_max = min(all_y), max(all_y)
@@ -673,44 +539,19 @@ def _draw_3d_all_layers(ax, bed_w, bed_h, unit_label):
         ax.set_ylim(y_min - y_pad, y_max + y_pad)
         ax.set_zlim(z_min - z_pad, z_max + z_pad)
 
-    # ── Title ─────────────────────────────────────────────────────────────
-    ax.set_title(
-        f"All Layers – 3D Stacked View  [{n_layers} layer(s)]  ({unit_label})",
-        color='#eeeeff', fontsize=12, fontweight='bold', pad=8,
-    )
-
-    # ── Legend ────────────────────────────────────────────────────────────
-    first_color = layer_rgba[0]
-    last_color  = layer_rgba[-1]
+    ax.set_title(f"All Layers – 3D Stacked View  [{n_layers} layer(s)]  ({unit_label})", color='#eeeeff', fontsize=12, fontweight='bold', pad=8)
 
     handles = [
-        Line2D([0], [0], color='#888888', linewidth=1.0, linestyle='--',
-               alpha=0.70, label='Travel (G0)'),
-        Line2D([0], [0], color=first_color, linewidth=2.0,
-               label=f'Print – layer 0  (G1/G2/G3)'),
-        Line2D([0], [0], color=last_color,  linewidth=2.0,
-               label=f'Print – layer {n_layers - 1}  (G1/G2/G3)'),
-        Line2D([0], [0], color='none',
-               label='↑ Colors vary by layer (plasma)'),
+        Line2D([0], [0], color='#888888', linewidth=1.0, linestyle='--', alpha=0.70, label='Travel (G0)'),
+        Line2D([0], [0], color=layer_rgba[0], linewidth=2.0, label='Print – Layer 1 (G1/G2/G3)'),
+        Line2D([0], [0], color=layer_rgba[-1], linewidth=2.0, label=f'Print – Layer {n_layers} (G1/G2/G3)'),
     ]
     if bed_w is not None and bed_h is not None:
-        handles.append(
-            Line2D([0], [0], color='#66aaff', linewidth=1.4, linestyle='--',
-                   label=f'Bed ({bed_w}×{bed_h} {unit_label})')
-        )
+        handles.append(Line2D([0], [0], color='#66aaff', linewidth=1.4, linestyle='--', label=f'Bed ({bed_w}×{bed_h} {unit_label})'))
 
-    ax.legend(
-        handles=handles,
-        loc='upper right',
-        facecolor='#2a2a3e',
-        edgecolor='#666688',
-        labelcolor='#cccccc',
-        fontsize=7,
-    )
+    ax.legend(handles=handles, loc='upper right', facecolor='#2a2a3e', edgecolor='#666688', labelcolor='#cccccc', fontsize=7)
 
-    # ── Viewpoint and styling ─────────────────────────────────────────────
     ax.view_init(elev=25, azim=-60)
-
     ax.set_facecolor('#1e1e2e')
     ax.set_xlabel(f"X ({unit_label})", color='#cccccc', fontsize=9)
     ax.set_ylabel(f"Y ({unit_label})", color='#cccccc', fontsize=9)
@@ -719,20 +560,12 @@ def _draw_3d_all_layers(ax, bed_w, bed_h, unit_label):
     ax.xaxis.pane.fill = False
     ax.yaxis.pane.fill = False
     ax.zaxis.pane.fill = False
-    ax.xaxis.pane.set_edgecolor('#444466')
-    ax.yaxis.pane.set_edgecolor('#444466')
-    ax.zaxis.pane.set_edgecolor('#444466')
     ax.grid(True, color='#444466', linewidth=0.3, linestyle=':')
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  SNAPSHOT
-# ══════════════════════════════════════════════════════════════════════════════
 
 def _save_snapshot(fig: Figure, output_var, status_label) -> None:
     initial_dir = output_var.get() or os.path.expanduser("~")
     path = filedialog.asksaveasfilename(
-        title="Save Snapshot",
+        title="Save Path Preview Snapshot",
         initialdir=initial_dir,
         defaultextension=".png",
         filetypes=[("PNG image", "*.png"), ("All files", "*.*")],
@@ -740,156 +573,114 @@ def _save_snapshot(fig: Figure, output_var, status_label) -> None:
     if not path:
         return
     try:
-        fig.savefig(path, dpi=300, bbox_inches='tight',
-                    facecolor=fig.get_facecolor())
-        _set_status(status_label, f"Snapshot saved: {path}", "#44dd88")
+        fig.savefig(path, dpi=300, bbox_inches='tight', facecolor=fig.get_facecolor())
+        set_status(status_label, f"Snapshot saved: {path}", "success")
     except Exception as exc:
-        _set_status(status_label, f"Save failed: {exc}", "red")
+        set_status(status_label, f"Save failed: {exc}", "error")
 
+def build_gui(root: ttk.Window = None) -> ttk.Window:
+    if root is None:
+        root = ttk.Window(
+            title="Lee Research Lab — G-Code Converter & Visualizer",
+            themename="darkly",
+            size=(1400, 900),
+            resizable=(True, True),
+        )
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  GUI CONSTRUCTION  —  TWO-COLUMN LAYOUT
-# ══════════════════════════════════════════════════════════════════════════════
+    load_app_icon(root)
 
-def build_gui() -> ttk.Window:
-
-    root = ttk.Window(
-        title="Lee Research Lab - GCode Visualizer",
-        themename="darkly",
-        size=(1400, 900),
-        resizable=(True, True),
-    )
-    if DND_AVAILABLE:
-        TkinterDnD.require(root)
-
-    # ── StringVars ─────────────────────────────────────────────────────────────
-    input_var     = tk.StringVar()
-    output_var    = tk.StringVar()
-    bed_w_var     = tk.StringVar()
-    bed_h_var     = tk.StringVar()
+    input_var = tk.StringVar()
+    output_var = tk.StringVar()
+    bed_w_var = tk.StringVar()
+    bed_h_var = tk.StringVar()
     view_mode_var = tk.StringVar(value="2D Top")
 
-    # ── Mutable cells for forward references ──────────────────────────────────
-    _btn_cell        = [None]   # convert button
-    _snap_cell       = [None]   # snapshot button
-    _fig_cell        = [None]   # Figure
-    _canvas_cell     = [None]   # FigureCanvasTkAgg
-    _status_cell     = [None]   # status label
-    _layer_grid_cell = [None]   # layer button grid frame
+    _btn_cell = [None]
+    _snap_cell = [None]
+    _fig_cell = [None]
+    _canvas_cell = [None]
+    _status_cell = [None]
+    _layer_grid_cell = [None]
 
-    # ── Main Panedwindow for two-column layout (note: lowercase 'w') ──────────
-    main_pane = ttk.Panedwindow(root, orient=HORIZONTAL)
-    main_pane.pack(fill=BOTH, expand=YES, padx=0, pady=0)
-
-    # ── LEFT COLUMN: Controls panel ──────────────────────────────────────────
-    left_frame = ttk.Frame(main_pane, padding=(15, 15, 10, 15))
-
-    # Title header
-    ttk.Label(
-        left_frame,
-        text="Lab GCode Tools",
-        font=("Segoe UI", 16, "bold"),
-        foreground="#eeeeff",
-        anchor=CENTER,
-    ).pack(fill=X, pady=(0, 10))
-    ttk.Separator(left_frame, orient=HORIZONTAL).pack(fill=X, pady=(0, 12))
-
-    # ── Scrollable inner content for left column ──────────────────────────────
-    left_canvas = tk.Canvas(left_frame, highlightthickness=0, bg='#2b2b2b')
-    left_scroll = ttk.Scrollbar(left_frame, orient=VERTICAL, command=left_canvas.yview)
-    left_inner  = ttk.Frame(left_canvas, padding=(0, 0, 5, 0))
-
-    left_inner.bind(
-        "<Configure>",
-        lambda e: left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+    make_app_header(
+        root,
+        title="G-Code Converter & Visualizer",
+        subtitle="Aerotech Toolpath & Layer Inspection",
+        on_return=root.destroy,
+        on_about=lambda: show_about_dialog(root),
     )
+    make_app_footer(root)
 
-    left_canvas.create_window((0, 0), window=left_inner, anchor="nw")
-    left_canvas.configure(yscrollcommand=left_scroll.set)
+    main_pane = ttk.Panedwindow(root, orient=HORIZONTAL)
+    main_pane.pack(fill=BOTH, expand=YES)
 
-    left_canvas.pack(side=LEFT, fill=BOTH, expand=YES)
-    left_scroll.pack(side=RIGHT, fill=Y)
+    left_container = ttk.Frame(main_pane, padding=(10, 10, 5, 10))
+    _, left_inner = make_scrollable_left_panel(left_container)
 
-    # Bind mousewheel scrolling
-    def _on_mousewheel(event):
-        left_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-    left_canvas.bind("<Enter>", lambda e: left_canvas.bind_all("<MouseWheel>", _on_mousewheel, add="+"))
-    left_canvas.bind("<Leave>", lambda e: left_canvas.unbind_all("<MouseWheel>"))
+    right_frame = ttk.Frame(main_pane, padding=(5, 10, 10, 10))
+    canvas_frame = ttk.Frame(right_frame, relief="solid", borderwidth=1)
+    canvas_frame.pack(fill=BOTH, expand=YES)
 
-    # Also configure canvas width to match frame
-    def _configure_canvas_width(event):
-        canvas_width = event.width
-        left_canvas.itemconfig(left_canvas.find_all()[0], width=canvas_width)
-    left_canvas.bind("<Configure>", _configure_canvas_width)
+    fig = Figure(figsize=(10, 7), facecolor='#1e1e2e')
+    _ax0 = fig.add_subplot(111)
+    _ax0.set_facecolor('#1e1e2e')
+    _ax0.set_title("Load a G-code file to initialize preview", color='#888888', fontsize=12)
+    _ax0.tick_params(colors='#444466')
+    for sp in _ax0.spines.values():
+        sp.set_edgecolor('#444466')
+    _fig_cell[0] = fig
 
-    # ── Helper: section label ─────────────────────────────────────────────────
-    def section_label(parent, text):
-        lbl = ttk.Label(parent, text=text, font=("Segoe UI", 10, "bold"),
-                        foreground="#cccccc", anchor=W)
-        lbl.pack(fill=X, pady=(12, 4))
-        return lbl
+    canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill=BOTH, expand=True)
+    _canvas_cell[0] = canvas
 
-    def small_label(parent, text):
-        lbl = ttk.Label(parent, text=text, font=("Segoe UI", 9),
-                        foreground="#aaaaaa", anchor=W)
-        lbl.pack(fill=X, pady=(0, 2))
-        return lbl
+    toolbar_frame = ttk.Frame(canvas_frame)
+    toolbar_frame.pack(fill=X, side=BOTTOM)
+    NavigationToolbar2Tk(canvas, toolbar_frame).update()
 
-    # ── 1. G-Code File ────────────────────────────────────────────────────────
-    section_label(left_inner, "G-Code File")
-    input_entry = ttk.Entry(left_inner, textvariable=input_var,
-                            state="readonly", style="secondary.TEntry")
+    # --- Section 1: G-Code Input ---
+    sec_input = make_titled_panel(left_inner, "📂 G-Code Input File")
+    input_entry = ttk.Entry(sec_input, textvariable=input_var, state="readonly", style="secondary.TEntry")
     input_entry.pack(fill=X, pady=(0, 4))
-    ttk.Button(
-        left_inner, text="📂  Browse", bootstyle="primary-outline",
-        command=lambda: browse_input(
-            input_var, output_var, input_entry, output_entry, _btn_cell[0]),
-    ).pack(fill=X, pady=(0, 8))
+    btn_in = ttk.Button(
+        sec_input, text="📂 Browse G-Code", bootstyle="primary-outline",
+        command=lambda: browse_input(input_var, output_var, input_entry, output_entry, _btn_cell[0]),
+    )
+    btn_in.pack(fill=X)
+    attach_tooltip(btn_in, "Select G-Code file (.gcode, .nc, .txt, .ascript)")
 
-    # Placeholder text
-    _PH = "Drop G-code file here…"
-    def _show_ph():
-        if not input_var.get():
-            input_entry.config(state="normal")
-            input_entry.delete(0, tk.END)
-            input_entry.insert(0, _PH)
-            input_entry.config(state="readonly", foreground="#888888")
-    root.after(50, _show_ph)
-
-    # ── 2. Output Folder ──────────────────────────────────────────────────────
-    section_label(left_inner, "Output Folder")
-    output_entry = ttk.Entry(left_inner, textvariable=output_var,
-                             state="readonly", style="secondary.TEntry")
+    # --- Section 2: Output Directory ---
+    sec_out = make_titled_panel(left_inner, "📁 Output Folder")
+    output_entry = ttk.Entry(sec_out, textvariable=output_var, state="readonly", style="secondary.TEntry")
     output_entry.pack(fill=X, pady=(0, 4))
-    ttk.Button(
-        left_inner, text="📁  Browse", bootstyle="primary-outline",
-        command=lambda: browse_output(
-            input_var, output_var, output_entry, _btn_cell[0]),
-    ).pack(fill=X, pady=(0, 8))
+    btn_out = ttk.Button(
+        sec_out, text="📁 Browse Output", bootstyle="primary-outline",
+        command=lambda: browse_output(input_var, output_var, output_entry, _btn_cell[0]),
+    )
+    btn_out.pack(fill=X)
+    attach_tooltip(btn_out, "Select destination folder for rendered PNG files")
 
-    # ── 3. Bed Size ───────────────────────────────────────────────────────────
-    section_label(left_inner, "Bed Size (mm)")
-    bed_frame = ttk.Frame(left_inner)
-    bed_frame.pack(fill=X, pady=(0, 8))
-    ttk.Entry(bed_frame, textvariable=bed_w_var, width=8).pack(side=LEFT, padx=(0, 4))
-    ttk.Label(bed_frame, text="x", foreground="#aaaaaa",
-              font=("Segoe UI", 10)).pack(side=LEFT, padx=(0, 4))
-    ttk.Entry(bed_frame, textvariable=bed_h_var, width=8).pack(side=LEFT, padx=(0, 8))
-    ttk.Label(bed_frame, text="(optional)", foreground="#666666",
-              font=("Segoe UI", 8)).pack(side=LEFT)
+    # --- Section 3: Bed Dimensions ---
+    sec_bed = make_titled_panel(left_inner, "📐 Printer Bed Bounds")
+    bed_row = ttk.Frame(sec_bed)
+    bed_row.pack(fill=X)
+    entry_w = ttk.Entry(bed_row, textvariable=bed_w_var, width=8)
+    entry_w.pack(side=LEFT, padx=(0, 4))
+    attach_tooltip(entry_w, "Printer bed width X in mm")
 
-    # ── Separator ─────────────────────────────────────────────────────────────
-    ttk.Separator(left_inner, orient=HORIZONTAL).pack(fill=X, pady=(8, 8))
+    small_label(bed_row, "×")
+    entry_h = ttk.Entry(bed_row, textvariable=bed_h_var, width=8)
+    entry_h.pack(side=LEFT, padx=(4, 6))
+    attach_tooltip(entry_h, "Printer bed length Y in mm")
+    small_label(bed_row, "(mm, optional)")
 
-    # ── 4. Preview Mode ───────────────────────────────────────────────────────
-    section_label(left_inner, "Preview Mode")
+    # --- Section 4: Preview View Mode ---
+    sec_view = make_titled_panel(left_inner, "👁 View Mode")
 
     def _on_mode_change():
-        """Redraw whenever the user switches view mode."""
-        global _LATEST_LAYERS, _active_layer_idx
         if not _LATEST_LAYERS:
             return
-
         try:
             bw = float(bed_w_var.get()) if bed_w_var.get().strip() else None
             bh = float(bed_h_var.get()) if bed_h_var.get().strip() else None
@@ -897,20 +688,17 @@ def build_gui() -> ttk.Window:
             bw = bh = None
 
         _redraw_preview(
-            layer_idx    = _active_layer_idx,
-            fig          = _fig_cell[0],
-            canvas       = _canvas_cell[0],
-            view_mode_var= view_mode_var,
-            bed_w        = bw,
-            bed_h        = bh,
+            layer_idx=_active_layer_idx,
+            fig=_fig_cell[0],
+            canvas=_canvas_cell[0],
+            view_mode_var=view_mode_var,
+            bed_w=bw,
+            bed_h=bh,
         )
-
-    mode_frame = ttk.Frame(left_inner)
-    mode_frame.pack(fill=X, pady=(0, 8))
 
     for mode_text, icon in [("2D Top", "⊞"), ("3D Interactive", "⟳"), ("3D All Layers", "⊡")]:
         ttk.Radiobutton(
-            mode_frame,
+            sec_view,
             text=f"{icon}  {mode_text}",
             variable=view_mode_var,
             value=mode_text,
@@ -918,29 +706,30 @@ def build_gui() -> ttk.Window:
             command=_on_mode_change,
         ).pack(fill=X, pady=(0, 3))
 
-    # ── 5. Layer Selection ────────────────────────────────────────────────────
-    section_label(left_inner, "Layers")
-    small_label(left_inner, "Click a button to select layer:")
-
-    layer_grid_frame = ttk.Frame(left_inner)
-    layer_grid_frame.pack(fill=X, pady=(4, 8))
+    # --- Section 5: Layer Grid ---
+    sec_layer = make_titled_panel(left_inner, "🥞 Layers")
+    small_label(sec_layer, "Click layer to inspect:")
+    layer_grid_frame = ttk.Frame(sec_layer)
+    layer_grid_frame.pack(fill=X, pady=(4, 4))
     _layer_grid_cell[0] = layer_grid_frame
 
-    # ── Separator ─────────────────────────────────────────────────────────────
-    ttk.Separator(left_inner, orient=HORIZONTAL).pack(fill=X, pady=(8, 8))
-
-    # ── 6. Convert Button ─────────────────────────────────────────────────────
-    convert_btn = ttk.Button(
-        left_inner,
-        text="⚡  Convert to PNG + Load Preview",
-        bootstyle="success",
-        state="disabled",
-        padding=(10, 8),
-    )
-    convert_btn.pack(fill=X, pady=(0, 8))
+    # --- Section 6: Convert & Actions ---
+    sec_act = make_titled_panel(left_inner, "⚡ Actions")
+    convert_btn = make_action_button(sec_act, text="⚡ Convert to PNG + Load Preview", bootstyle="success", state="disabled")
     _btn_cell[0] = convert_btn
+    attach_tooltip(convert_btn, "Render high-res PNG and load layer toolpath into preview")
 
-    # Wire up command
+    snapshot_btn = make_action_button(sec_act, text="💾 Save View Snapshot", bootstyle="secondary", state="disabled")
+    _snap_cell[0] = snapshot_btn
+    attach_tooltip(snapshot_btn, "Save current preview canvas image")
+
+    btn_open = make_action_button(sec_act, text="📂 Open Output Folder", bootstyle="secondary", command=lambda: _open_folder(output_var.get()))
+    attach_tooltip(btn_open, "Open destination directory in file explorer")
+
+    progress_bar = make_progress_bar(left_inner)
+    status_label = make_status_label(left_inner, "Ready — select G-Code file")
+    _status_cell[0] = status_label
+
     def _convert_cmd():
         run_conversion(
             input_var, output_var,
@@ -955,96 +744,16 @@ def build_gui() -> ttk.Window:
                 view_mode_var, root,
             ),
         )
+
     convert_btn.config(command=_convert_cmd)
+    snapshot_btn.config(command=lambda: _save_snapshot(_fig_cell[0], output_var, _status_cell[0]))
 
-    # ── Progress bar ──────────────────────────────────────────────────────────
-    progress_bar = ttk.Progressbar(
-        left_inner, bootstyle="info-striped", mode="indeterminate")
-    progress_bar.pack(fill=X, pady=(0, 8))
-
-    # ── 7. Action Buttons ─────────────────────────────────────────────────────
-    section_label(left_inner, "Actions")
-
-    snapshot_btn = ttk.Button(
-        left_inner,
-        text="💾  Save Snapshot",
-        bootstyle="secondary",
-        state="disabled",
-        padding=(8, 6),
-        command=lambda: _save_snapshot(
-            _fig_cell[0], output_var, _status_cell[0]),
-    )
-    snapshot_btn.pack(fill=X, pady=(0, 4))
-    _snap_cell[0] = snapshot_btn
-
-    ttk.Button(
-        left_inner,
-        text="📂  Open Output Folder",
-        bootstyle="secondary",
-        padding=(8, 6),
-        command=lambda: _open_folder(output_var.get()),
-    ).pack(fill=X, pady=(0, 4))
-
-    # ── Status label ──────────────────────────────────────────────────────────
-    ttk.Separator(left_inner, orient=HORIZONTAL).pack(fill=X, pady=(8, 8))
-    status_label = ttk.Label(
-        left_inner,
-        text="Ready",
-        foreground="#888888",
-        font=("Segoe UI", 9),
-        anchor=CENTER,
-        wraplength=250,
-    )
-    status_label.pack(fill=X, pady=(0, 4))
-    _status_cell[0] = status_label
-
-    # Ensure left_inner is properly sized
-    left_inner.update_idletasks()
-    left_canvas.configure(scrollregion=left_canvas.bbox("all"))
-
-    # ── RIGHT COLUMN: Visualizer panel ────────────────────────────────────────
-    right_frame = ttk.Frame(main_pane, padding=(10, 15, 15, 15))
-
-    # Canvas frame with subtle border
-    canvas_frame = ttk.Frame(right_frame, relief="solid", borderwidth=1,
-                             bootstyle="dark")
-    canvas_frame.pack(fill=BOTH, expand=YES)
-
-    # Initial placeholder figure
-    fig = Figure(figsize=(10, 7), facecolor='#1e1e2e')
-    _ax0 = fig.add_subplot(111)
-    _ax0.set_facecolor('#1e1e2e')
-    _ax0.set_title("Load a G-code file to see the preview",
-                   color='#555577', fontsize=14)
-    _ax0.tick_params(colors='#333355')
-    for sp in _ax0.spines.values():
-        sp.set_edgecolor('#333355')
-    # Add grid lines even for placeholder
-    _ax0.grid(True, color='#333355', linewidth=0.3, linestyle=':', alpha=0.5)
-    _fig_cell[0] = fig
-
-    # Embed canvas
-    canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
-    canvas.draw()
-    canvas.get_tk_widget().pack(fill=BOTH, expand=True)
-    _canvas_cell[0] = canvas
-
-    # Navigation toolbar
-    toolbar_frame = ttk.Frame(canvas_frame)
-    toolbar_frame.pack(fill=X, side=BOTTOM)
-    NavigationToolbar2Tk(canvas, toolbar_frame).update()
-
-    # ── Add both frames to the Panedwindow ────────────────────────────────────
-    main_pane.add(left_frame, weight=1)
+    main_pane.add(left_container, weight=1)
     main_pane.add(right_frame, weight=4)
 
-    # ── Reactive convert-button enable/disable ────────────────────────────────
-    input_var.trace_add("write",
-        lambda *_: _update_convert_btn(input_var, output_var, convert_btn))
-    output_var.trace_add("write",
-        lambda *_: _update_convert_btn(input_var, output_var, convert_btn))
+    input_var.trace_add("write", lambda *_: _update_convert_btn(input_var, output_var, convert_btn))
+    output_var.trace_add("write", lambda *_: _update_convert_btn(input_var, output_var, convert_btn))
 
-    # ── Drag-and-drop ─────────────────────────────────────────────────────────
     if DND_AVAILABLE:
         input_entry.drop_target_register(DND_FILES)
         input_entry.dnd_bind(
@@ -1064,14 +773,8 @@ def build_gui() -> ttk.Window:
 
     return root
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  ENTRY POINT
-# ══════════════════════════════════════════════════════════════════════════════
-
 def main():
     build_gui().mainloop()
-
 
 if __name__ == "__main__":
     main()
