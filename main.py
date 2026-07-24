@@ -2,7 +2,8 @@
 """
 main.py
 ━━━━━━━
-Launcher menu for the Lee Research Lab tool suite.
+Launcher menu for the Lee Research Group Tool Suite v4.0.0.
+Refactored to consume ui_common header, buttons, icon loader, and about dialog.
 """
 
 import tkinter as tk
@@ -10,129 +11,103 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
-# ─────────────────────────────────────────────────────────────────
-#  Top‑level imports – PyInstaller needs them visible.
-# ─────────────────────────────────────────────────────────────────
 import gcode_converter_gui
 import image_analysis_gui
 import surface_roughness_gui
+from ui_common import (
+    __version__,
+    make_app_header,
+    make_app_footer,
+    make_action_button,
+    load_app_icon,
+    show_about_dialog,
+    attach_tooltip,
+)
 
+menu_root = None
 
-# ─────────────────────────────────────────────────────────────────
-#  Launch helpers
-# ─────────────────────────────────────────────────────────────────
-
-def _launch_and_return(build_func, tool_name):
-    """Destroy the menu, open the tool, and return when done."""
-    menu_root.destroy()
+def _launch_and_return(build_func, tool_name: str) -> None:
+    """Close the menu window, execute the selected tool, and re-open menu upon return."""
+    global menu_root
+    if menu_root:
+        menu_root.destroy()
 
     try:
         app_root = build_func()
-        # Ensure the close button terminates the mainloop cleanly.
         app_root.protocol("WM_DELETE_WINDOW", app_root.quit)
         app_root.mainloop()
-    except Exception as e:
+    except Exception as err:
         messagebox.showerror(
-            "Launch Error",
-            f"Could not start {tool_name}.\n\nError: {e}"
+            "Tool Launch Error",
+            f"Could not launch {tool_name}.\n\nError details:\n{err}",
         )
     finally:
         _start_menu()
-
-
-def _launch_gcode():
-    _launch_and_return(gcode_converter_gui.build_gui, "G-Code Converter")
-
-
-def _launch_image_analysis():
-    _launch_and_return(image_analysis_gui.build_image_analysis_gui, "Image Analysis")
-
-
-def _launch_surface_roughness():
-    _launch_and_return(surface_roughness_gui.build_surface_roughness_gui,
-                       "Surface Roughness")
-
-
-# ─────────────────────────────────────────────────────────────────
-#  Build the launcher window
-# ─────────────────────────────────────────────────────────────────
 
 def _start_menu():
     global menu_root
 
     menu_root = ttk.Window(
-        title="Lee Research Lab — Tool Launcher",
+        title="Lee Research Group — Tool Suite",
         themename="darkly",
-        size=(600, 460),                     # bigger window
+        size=(620, 480),
         resizable=(False, False),
     )
 
-    # Centre everything vertically
-    for row in range(9):
-        menu_root.rowconfigure(row, weight=1)
-    menu_root.columnconfigure(0, weight=1)
+    load_app_icon(menu_root)
 
-    # Header
+    # Top Suite Header
+    make_app_header(
+        menu_root,
+        title="Lee Research Group Tool Suite",
+        subtitle="University of St. Thomas",
+        on_about=lambda: show_about_dialog(menu_root),
+    )
+
+    # Persistent Footer
+    make_app_footer(menu_root)
+
+    # Center Container
+    center_frame = ttk.Frame(menu_root, padding=(30, 15, 30, 15))
+    center_frame.pack(fill=BOTH, expand=YES)
+
     ttk.Label(
-        menu_root,
-        text="Lee Research Lab",
-        font=("Segoe UI", 24, "bold"),
-        foreground="#eeeeff",
+        center_frame,
+        text="Select a laboratory module to launch:",
+        font=("Segoe UI", 11),
+        foreground="#cccccc",
         anchor=CENTER,
-    ).grid(row=0, column=0, pady=(35, 4), sticky="ew")
+    ).pack(fill=X, pady=(0, 20))
 
-    ttk.Label(
-        menu_root,
-        text="Select a tool to launch",
-        font=("Segoe UI", 12),
-        foreground="#999999",
-        anchor=CENTER,
-    ).grid(row=1, column=0, pady=(0, 25), sticky="ew")
-
-    # Buttons – larger and wider
-    btn_style = {"padding": (22, 16), "width": 24}
-
-    ttk.Button(
-        menu_root,
-        text="⚙   G‑Code Converter",
+    # Module Buttons
+    btn_gcode = make_action_button(
+        center_frame,
+        text="⚙   G-Code Converter & Visualizer",
         bootstyle="primary",
-        command=_launch_gcode,
-        **btn_style
-    ).grid(row=2, column=0, pady=(0, 14), sticky="ew", padx=100)
+        command=lambda: _launch_and_return(gcode_converter_gui.build_gui, "G-Code Converter"),
+        padding=(16, 12),
+    )
+    attach_tooltip(btn_gcode, "Convert Aerotech G-Code files into high-res PNGs & inspect 2D/3D nozzle paths")
 
-    ttk.Button(
-        menu_root,
-        text="🔬   Image Analysis",
+    btn_img = make_action_button(
+        center_frame,
+        text="🔬   Line Width Image Analysis",
         bootstyle="info",
-        command=_launch_image_analysis,
-        **btn_style
-    ).grid(row=3, column=0, pady=(0, 14), sticky="ew", padx=100)
+        command=lambda: _launch_and_return(image_analysis_gui.build_image_analysis_gui, "Image Analysis"),
+        padding=(16, 12),
+    )
+    attach_tooltip(btn_img, "Measure line width, edge profile, and CV% across microscopic image scans")
 
-    ttk.Button(
-        menu_root,
-        text="📊   Surface Roughness",
+    btn_surf = make_action_button(
+        center_frame,
+        text="📊   Surface Roughness Analysis",
         bootstyle="success",
-        command=_launch_surface_roughness,
-        **btn_style
-    ).grid(row=4, column=0, pady=(0, 14), sticky="ew", padx=100)
-
-    # Footer
-    ttk.Label(
-        menu_root,
-        text="Close any tool window to return here.",
-        font=("Segoe UI", 8),
-        foreground="#555566",
-    ).grid(row=6, column=0, pady=(20, 2), sticky="ew")
-
-    ttk.Label(
-        menu_root,
-        text="© Lee Research Lab",
-        font=("Segoe UI", 8),
-        foreground="#444466",
-    ).grid(row=7, column=0, pady=(0, 20), sticky="ew")
+        command=lambda: _launch_and_return(surface_roughness_gui.build_surface_roughness_gui, "Surface Roughness"),
+        padding=(16, 12),
+    )
+    attach_tooltip(btn_surf, "Reflectance surface roughness analysis with 5x coaxial flat-field correction")
 
     menu_root.mainloop()
-
 
 if __name__ == "__main__":
     _start_menu()

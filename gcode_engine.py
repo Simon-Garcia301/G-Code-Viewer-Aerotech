@@ -13,7 +13,6 @@ import os
 import re
 import math
 
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -48,22 +47,12 @@ _NOOP_RE = re.compile(
     re.IGNORECASE,
 )
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PRINT LAYER
-# ══════════════════════════════════════════════════════════════════════════════
-
 class PrintLayer:
     """Container for all toolpath segments at a specific Z height."""
     def __init__(self, z: float):
         self.z = z
-        self.travel_segments: list = []   # each element is list of (x,y) tuples
+        self.travel_segments: list = []
         self.print_segments:  list = []
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  MACHINE STATE
-# ══════════════════════════════════════════════════════════════════════════════
 
 class MachineState:
     def __init__(self):
@@ -92,16 +81,7 @@ class MachineState:
             return self.variables[name]
         return float(token)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  EXPRESSION EVALUATOR
-# ══════════════════════════════════════════════════════════════════════════════
-
 def evaluate_expression(expr: str, variables: dict) -> float:
-    """
-    Evaluate a parenthesized arithmetic expression such as ($X_Start + $LineLength).
-    Supports +, -, *, /, numeric literals, and $var / &var references.
-    """
     inner = expr.strip()
     if inner.startswith('(') and inner.endswith(')'):
         inner = inner[1:-1]
@@ -110,9 +90,7 @@ def evaluate_expression(expr: str, variables: dict) -> float:
         prefix = m.group(1)
         name   = m.group(2)
         if name not in variables:
-            raise ValueError(
-                f"Variable '{prefix}{name}' used before declaration in expression."
-            )
+            raise ValueError(f"Variable '{prefix}{name}' used before declaration in expression.")
         return str(variables[name])
 
     inner   = re.sub(r'([&$])([A-Za-z_]\w*)', replace_var, inner)
@@ -126,11 +104,6 @@ def evaluate_expression(expr: str, variables: dict) -> float:
         raise ValueError(f"Cannot evaluate expression '{expr}': {exc}") from exc
 
     return float(result)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  ARC GEOMETRY
-# ══════════════════════════════════════════════════════════════════════════════
 
 def arc_points_ij(
     sx: float, sy: float,
@@ -164,7 +137,6 @@ def arc_points_ij(
          cy + radius * math.sin(theta_start + k / n_seg * sweep))
         for k in range(n_seg + 1)
     ]
-
 
 def arc_points_r(
     sx: float, sy: float,
@@ -200,11 +172,6 @@ def arc_points_r(
     cx, cy = (c1x, c1y) if use_c1 else (c2x, c2y)
     return arc_points_ij(sx, sy, ex, ey, cx - sx, cy - sy, clockwise, n_seg)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PRE-PROCESSING
-# ══════════════════════════════════════════════════════════════════════════════
-
 def preprocess(raw_text: str) -> list:
     lines = []
     for raw in raw_text.splitlines():
@@ -215,11 +182,6 @@ def preprocess(raw_text: str) -> list:
         if line:
             lines.append(line)
     return lines
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  TOKENISER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def tokenise_line(line: str, state: MachineState) -> dict:
     words = {}
@@ -240,11 +202,6 @@ def tokenise_line(line: str, state: MachineState) -> dict:
         else:
             words[letter] = value
     return words
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PARSER / INTERPRETER  (original — completely unchanged)
-# ══════════════════════════════════════════════════════════════════════════════
 
 def parse_gcode(lines: list) -> tuple:
     state = MachineState()
@@ -354,31 +311,14 @@ def parse_gcode(lines: list) -> tuple:
     flush()
     return travel_segments, print_segments, z_annotations, state
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  LAYERED PARSER  (new — for interactive 3-D preview)
-# ══════════════════════════════════════════════════════════════════════════════
-
 def parse_gcode_to_layers(lines: list) -> tuple:
-    """
-    Parse *lines* (already preprocessed) and return ``(layers, state)``
-    where *layers* is a list of :class:`PrintLayer` objects sorted by Z
-    ascending (capped at 20 buckets) and *state* is the final
-    :class:`MachineState`.
-
-    Logic mirrors :func:`parse_gcode` exactly — same tokenisation,
-    variable handling, arc logic, and segment-builder pattern — except
-    that segments are stored per-layer rather than in flat lists.
-    """
     state = MachineState()
 
-    # ── Segment-builder state (mutable cells so inner funcs can mutate them) ──
-    _seg_type: list = [None]   # 'travel' | 'print' | None
+    _seg_type: list = [None]
     _seg_pts:  list = []
 
-    # ── Layer registry ────────────────────────────────────────────────────────
-    _layer_map:   dict = {}    # round(z, 9) → PrintLayer
-    _layer_order: list = []    # insertion order (for sorting later)
+    _layer_map:   dict = {}
+    _layer_order: list = []
 
     def _get_or_create_layer(z: float) -> PrintLayer:
         key = round(z, 9)
@@ -388,7 +328,7 @@ def parse_gcode_to_layers(lines: list) -> tuple:
             _layer_order.append(la)
         return _layer_map[key]
 
-    _cur_layer: list = [_get_or_create_layer(0.0)]   # mutable cell
+    _cur_layer: list = [_get_or_create_layer(0.0)]
 
     def flush_to_layer():
         if len(_seg_pts) >= 2:
@@ -409,7 +349,6 @@ def parse_gcode_to_layers(lines: list) -> tuple:
                 _seg_pts.append(last)
         _seg_pts.append((x, y))
 
-    # ── Main parse loop ───────────────────────────────────────────────────────
     for lineno, line in enumerate(lines, start=1):
 
         if _NOOP_RE.match(line):
@@ -458,12 +397,10 @@ def parse_gcode_to_layers(lines: list) -> tuple:
         ny = state.resolve_target('y', words['Y']) if 'Y' in words else py
         nz = state.resolve_target('z', words['Z']) if 'Z' in words else pz
 
-        # ── Z change → flush current segment and switch active layer ──────────
         if abs(nz - pz) > 1e-9:
             flush_to_layer()
             _cur_layer[0] = _get_or_create_layer(nz)
 
-        # ── Motion ────────────────────────────────────────────────────────────
         if motion_g == 0:
             add_point_layer(px, py, 'travel')
             add_point_layer(nx, ny, 'travel')
@@ -491,30 +428,27 @@ def parse_gcode_to_layers(lines: list) -> tuple:
         state.x, state.y, state.z = nx, ny, nz
 
     flush_to_layer()
-
-    # ── Sort by Z ascending ───────────────────────────────────────────────────
     layers = sorted(_layer_order, key=lambda la: la.z)
 
-    # ── Bucket into ≤ 20 groups if needed ────────────────────────────────────
     MAX_LAYERS = 20
     if len(layers) > MAX_LAYERS:
-        z_values     = [la.z for la in layers]
-        z_min        = z_values[0]
-        z_max        = z_values[-1]
-        z_span       = (z_max - z_min) or 1.0
-        bucket_size  = z_span / MAX_LAYERS
+        z_values    = [la.z for la in layers]
+        z_min       = z_values[0]
+        z_max       = z_values[-1]
+        z_span      = (z_max - z_min) or 1.0
+        bucket_size = z_span / MAX_LAYERS
 
         buckets: list = [[] for _ in range(MAX_LAYERS)]
         for la in layers:
             idx = int((la.z - z_min) / bucket_size)
-            idx = min(idx, MAX_LAYERS - 1)   # last layer always in final bucket
+            idx = min(idx, MAX_LAYERS - 1)
             buckets[idx].append(la)
 
         merged: list = []
         for bucket in buckets:
             if not bucket:
                 continue
-            mid_z        = sum(la.z for la in bucket) / len(bucket)
+            mid_z = sum(la.z for la in bucket) / len(bucket)
             merged_layer = PrintLayer(mid_z)
             for la in bucket:
                 merged_layer.travel_segments.extend(la.travel_segments)
@@ -524,11 +458,6 @@ def parse_gcode_to_layers(lines: list) -> tuple:
         layers = merged
 
     return layers, state
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  RENDERER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def visualise(
     travel_segments: list,
@@ -540,12 +469,9 @@ def visualise(
     bed_w:           float = None,
     bed_h:           float = None,
 ) -> None:
-    # Lazy imports: caller must have already invoked matplotlib.use() with
-    # the desired backend before this function is called.
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
-    # ── Collect all points ────────────────────────────────────────────────────
     all_xs: list = []
     all_ys: list = []
     for seg in travel_segments + print_segments:
@@ -577,7 +503,6 @@ def visualise(
     elif min_spacing < 2.0:  lw_print = 2.0
     else:                    lw_print = 1.5
 
-    # ── Figure layout ─────────────────────────────────────────────────────────
     if highly_elongated:
         fig = plt.figure(figsize=(14, 10))
         fig.patch.set_facecolor('#1e1e2e')
@@ -593,7 +518,6 @@ def visualise(
     for _ax in axes_list:
         _ax.set_facecolor('#1e1e2e')
 
-    # ── Shared draw helper ────────────────────────────────────────────────────
     def draw_on(target_ax, is_zoom=False):
         for seg in travel_segments:
             if len(seg) < 2:
@@ -626,10 +550,8 @@ def visualise(
                 )
 
         if all_pts:
-            target_ax.plot(*all_pts[0],  'o', color='#00ff88',
-                           markersize=8, zorder=5)
-            target_ax.plot(*all_pts[-1], 's', color='#ff4444',
-                           markersize=8, zorder=5)
+            target_ax.plot(*all_pts[0],  'o', color='#00ff88', markersize=8, zorder=5)
+            target_ax.plot(*all_pts[-1], 's', color='#ff4444', markersize=8, zorder=5)
 
         if not is_zoom:
             seen_z: set = set()
@@ -638,8 +560,7 @@ def visualise(
                 if key not in seen_z:
                     target_ax.annotate(
                         label, xy=(ann_x, ann_y), fontsize=6, color='#ffdd88',
-                        bbox=dict(boxstyle='round,pad=0.2',
-                                  fc='#333355', alpha=0.7),
+                        bbox=dict(boxstyle='round,pad=0.2', fc='#333355', alpha=0.7),
                         zorder=6,
                     )
                     seen_z.add(key)
@@ -659,7 +580,6 @@ def visualise(
 
         return cmap, legend_extra, all_pts
 
-    # ── Draw overview ─────────────────────────────────────────────────────────
     cmap, legend_extra, all_pts = draw_on(ax, is_zoom=False)
 
     x_pad = max(x_span * 0.05, 1.0)
@@ -669,31 +589,23 @@ def visualise(
 
     if highly_elongated:
         ax.set_aspect('auto')
-        ax.set_title(title + "  [overview]",
-                     color='#eeeeff', fontsize=13, fontweight='bold', pad=10)
+        ax.set_title(title + "  [overview]", color='#eeeeff', fontsize=13, fontweight='bold', pad=10)
     else:
         ax.set_aspect('equal', adjustable='datalim')
-        ax.set_title(title, color='#eeeeff', fontsize=14,
-                     fontweight='bold', pad=12)
+        ax.set_title(title, color='#eeeeff', fontsize=14, fontweight='bold', pad=12)
 
     _style_ax(ax, unit_label)
 
     ax.legend(
         handles=[
-            Line2D([0], [0], color='#888888', linewidth=1.2, linestyle='--',
-                   label='Travel (G0)'),
+            Line2D([0], [0], color='#888888', linewidth=1.2, linestyle='--', label='Travel (G0)'),
             Line2D([0], [0], color=cmap(0.0), linewidth=2, label='Print start'),
             Line2D([0], [0], color=cmap(0.5), linewidth=2, label='Print mid'),
             Line2D([0], [0], color=cmap(1.0), linewidth=2, label='Print end'),
-            Line2D([0], [0], marker='o', color='w',
-                   markerfacecolor='#00ff88', markersize=8,
-                   label='First print point'),
-            Line2D([0], [0], marker='s', color='w',
-                   markerfacecolor='#ff4444', markersize=8,
-                   label='Last  print point'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='#00ff88', markersize=8, label='First print point'),
+            Line2D([0], [0], marker='s', color='w', markerfacecolor='#ff4444', markersize=8, label='Last print point'),
         ] + legend_extra,
-        loc='upper right', facecolor='#2a2a3e',
-        edgecolor='#666688', labelcolor='#cccccc', fontsize=8,
+        loc='upper right', facecolor='#2a2a3e', edgecolor='#666688', labelcolor='#cccccc', fontsize=8,
     )
 
     n_travel = sum(len(s) - 1 for s in travel_segments)
@@ -712,11 +624,9 @@ def visualise(
         f"Total print path: {length:.2f} {unit_label}",
         transform=ax.transAxes, fontsize=7.5, color='#aaaacc',
         verticalalignment='bottom',
-        bbox=dict(boxstyle='round', facecolor='#2a2a3e',
-                  alpha=0.8, edgecolor='#666688'),
+        bbox=dict(boxstyle='round', facecolor='#2a2a3e', alpha=0.8, edgecolor='#666688'),
     )
 
-    # ── Zoomed detail panel ───────────────────────────────────────────────────
     if ax_zoom is not None:
         draw_on(ax_zoom, is_zoom=True)
 
@@ -739,16 +649,13 @@ def visualise(
             f"Aspect ratio: {aspect_ratio:.1f}:1",
             transform=ax_zoom.transAxes, fontsize=8, color='#ffdd88',
             verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='#2a2a3e',
-                      alpha=0.8, edgecolor='#666688'),
+            bbox=dict(boxstyle='round', facecolor='#2a2a3e', alpha=0.8, edgecolor='#666688'),
         )
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
-
-# ── Axis styling helper ───────────────────────────────────────────────────────
 def _style_ax(ax, unit_label: str) -> None:
     ax.grid(True, color='#444466', linewidth=0.4, linestyle=':', alpha=0.7)
     ax.tick_params(colors='#cccccc')
@@ -757,11 +664,6 @@ def _style_ax(ax, unit_label: str) -> None:
     ax.set_xlabel(f"X ({unit_label})", color='#cccccc', fontsize=11)
     ax.set_ylabel(f"Y ({unit_label})", color='#cccccc', fontsize=11)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  PUBLIC API
-# ══════════════════════════════════════════════════════════════════════════════
-
 def convert_gcode_to_png(
     gcode_path:    str,
     output_folder: str,
@@ -769,15 +671,12 @@ def convert_gcode_to_png(
     bed_h:         float = None,
 ) -> str:
     try:
-        # Set Agg only when no backend has been configured yet (e.g. CLI use).
-        # When called from the GUI the TkAgg backend is already active and we
-        # must not override it — plt.savefig works fine with TkAgg too.
         import matplotlib
         if matplotlib.get_backend().lower() in ('', 'agg'):
             try:
                 matplotlib.use('Agg')
             except Exception:
-                pass   # backend already set; ignore
+                pass
 
         if not os.path.isfile(gcode_path):
             return f"Error: File not found: {gcode_path!r}"

@@ -1,38 +1,16 @@
-# ============================================================
-# line_width_engine.py
-# ============================================================
-#!/usr/bin/env python3
 """
 line_width_engine.py
 ━━━━━━━━━━━━━━━━━━━
-Engine class that encapsulates all analysis logic from
-line_width_analysis.py without saving anything to disk during
-analyze().  Call save_results() to persist outputs.
+Engine class that encapsulates all analysis logic from line width analysis.
 """
 
 import glob
 import os
 
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 class LineWidthAnalyzer:
     """
     Measures line-width consistency from one or more overlapping
     microscope images.
-
-    Parameters
-    ----------
-    images        : list[str]  – ordered file paths
-    scale         : float      – µm per pixel
-    threshold     : int        – grayscale cut-off (default 200)
-    orientation   : str        – "vertical" or "horizontal"
-    smooth_window : int        – rolling-average window; 0 = off
-    overlap_px    : float      – known frame overlap in pixels (0 = none)
-    unit          : str        – "um" or "mm"
-    outdir        : str        – default output directory for save_results()
     """
 
     def __init__(
@@ -55,25 +33,7 @@ class LineWidthAnalyzer:
         self.unit          = unit
         self.outdir        = outdir
 
-    # ------------------------------------------------------------------
-    # Public methods
-    # ------------------------------------------------------------------
-
     def analyze(self) -> dict:
-        """
-        Run the full analysis pipeline.
-
-        Returns
-        -------
-        dict with keys:
-          "width_profile"  – numpy array shape (N, 3):
-                             [position, width_raw, width_smoothed]
-          "stats"          – dict: mean, std, cv_pct, min, max,
-                                   min_pos, max_pos, n_points, n_images
-          "qa_image"       – numpy RGB image (last processed frame
-                             with red edge dots)
-          "fig_plot"       – matplotlib Figure (width vs position)
-        """
         import numpy as np
 
         all_positions   = []
@@ -94,9 +54,8 @@ class LineWidthAnalyzer:
             all_positions.append(positions_px)
             all_widths.append(widths_px)
 
-            # QA overlay (kept in memory; written only in save_results)
             overlay_bgr  = self._draw_qa_overlay(img, idxs, e1s, e2s)
-            last_overlay_rgb = overlay_bgr[:, :, ::-1].copy()   # BGR→RGB
+            last_overlay_rgb = overlay_bgr[:, :, ::-1].copy()
 
             frame_extent = (
                 gray.shape[0] if self.orientation == "vertical"
@@ -130,11 +89,6 @@ class LineWidthAnalyzer:
         }
 
     def save_results(self, results: dict, outdir: str = None) -> list:
-        """
-        Write CSV files and QA overlay images to *outdir*.
-
-        Returns list of saved file paths.
-        """
         import cv2
         import numpy as np
 
@@ -144,7 +98,6 @@ class LineWidthAnalyzer:
         saved = []
         ul    = self.unit
 
-        # ── width_profile.csv ───────────────────────────────────────────
         profile  = results["width_profile"]
         csv_path = os.path.join(target, "width_profile.csv")
         self._write_csv(
@@ -154,7 +107,6 @@ class LineWidthAnalyzer:
         )
         saved.append(csv_path)
 
-        # ── summary_stats.csv ───────────────────────────────────────────
         st       = results["stats"]
         sum_path = os.path.join(target, "summary_stats.csv")
         rows = [
@@ -172,7 +124,6 @@ class LineWidthAnalyzer:
         self._write_summary_csv(sum_path, rows)
         saved.append(sum_path)
 
-        # ── QA overlay images ────────────────────────────────────────────
         for n, path in enumerate(self.images):
             try:
                 img, gray = self._load_image(path)
@@ -186,17 +137,12 @@ class LineWidthAnalyzer:
             except Exception:
                 pass
 
-        # ── width_vs_position.png ────────────────────────────────────────
         fig      = results["fig_plot"]
         fig_path = os.path.join(target, "width_vs_position.png")
         fig.savefig(fig_path, dpi=200, bbox_inches="tight")
         saved.append(fig_path)
 
         return saved
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _expand_paths(patterns: list) -> list:
@@ -220,10 +166,6 @@ class LineWidthAnalyzer:
         return img, gray
 
     def _detect_edges(self, gray):
-        """
-        Detect left/right (or top/bottom) line edges in every row/column.
-        Returns (idxs, e1s, e2s) as numpy integer arrays.
-        """
         import cv2
         import numpy as np
 
@@ -290,7 +232,6 @@ class LineWidthAnalyzer:
                     .to_numpy()
                 )
             except ImportError:
-                # Fallback: simple uniform convolution
                 kernel = np.ones(self.smooth_window) / self.smooth_window
                 return np.convolve(widths, kernel, mode="same")
         return widths.copy()
@@ -318,7 +259,6 @@ class LineWidthAnalyzer:
         }
 
     def _build_figure(self, position_out, widths_raw, widths_sm, stats) -> object:
-        """Build and return a matplotlib Figure (not shown, not saved)."""
         from matplotlib.figure import Figure
 
         ul   = self.unit
@@ -381,20 +321,14 @@ class LineWidthAnalyzer:
         fig.tight_layout()
         return fig
 
-    # ------------------------------------------------------------------
-    # CSV helpers (no pandas dependency required)
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _write_csv(path: str, headers: list, data) -> None:
-        """Write a CSV with given headers and a 2-D array of data rows."""
         try:
             import pandas as pd
-            import numpy as np
             df = pd.DataFrame(data, columns=headers)
             df.to_csv(path, index=False)
         except ImportError:
-            import csv, numpy as np
+            import csv
             with open(path, "w", newline="") as fh:
                 w = csv.writer(fh)
                 w.writerow(headers)
