@@ -29,12 +29,13 @@ from ttkbootstrap.constants import *
 DND_AVAILABLE = False
 try:
     from tkinterdnd2 import TkinterDnD, DND_FILES
+    # Skip test window since it may cause issues with existing root
     try:
-        # Test if tkdnd is actually working
-        test_root = tk.Tk()
-        test_root.tk.eval('package require tkdnd')
-        test_root.destroy()
+        import tkinter
+        test = tkinter.Tk()
+        test.tk.eval('package require tkdnd')
         DND_AVAILABLE = True
+        test.destroy()
     except:
         DND_AVAILABLE = False
 except ImportError:
@@ -759,8 +760,10 @@ def build_gui(root: ttk.Window) -> None:
     input_var.trace_add("write", lambda *_: _update_convert_btn(input_var, output_var, convert_btn))
     output_var.trace_add("write", lambda *_: _update_convert_btn(input_var, output_var, convert_btn))
 
-    if DND_AVAILABLE:
+    if DND_AVAILABLE and hasattr(input_entry, 'drop_target_register'):
         try:
+            # Ensure tkdnd is loaded in the actual root window
+            root.tk.eval('package require tkdnd')
             input_entry.drop_target_register(DND_FILES)
             input_entry.dnd_bind(
                 "<<Drop>>",
