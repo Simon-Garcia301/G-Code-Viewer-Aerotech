@@ -232,7 +232,7 @@ def make_action_button(
     """Unified button factory ensuring consistent sizing and padding across windows."""
     kwargs = {
         "text": text,
-        "bootstyle": bootstyle,
+        "style": bootstyle,
         "state": state,
         "padding": padding,
     }
@@ -247,7 +247,8 @@ def make_action_button(
 
 def make_titled_panel(parent: tk.Widget, title: str) -> ttk.LabelFrame:
     """Unified titled section panel factory using ttk.LabelFrame."""
-    lf = ttk.LabelFrame(parent, text=title, bootstyle="primary.TLabelframe", padding=10)
+    lf = ttk.LabelFrame(parent, text=title, padding=10)
+    lf.configure(style="primary.TLabelframe")
     lf.pack(fill=X, padx=2, pady=5)
     return lf
 

@@ -53,12 +53,10 @@ def _try_int(s: str, default: int = 0) -> int:
 
 def build_image_analysis_gui(root: ttk.Window = None) -> ttk.Window:
     if root is None:
-        root = ttk.Window(
-            title="Lee Research Lab — Image Analysis",
-            themename="darkly",
-            size=(1400, 900),
-            resizable=(True, True),
-        )
+        root = ttk.Window(title="Lee Research Lab — Image Analysis")
+        root.style = ttk.Style(theme="darkly")
+        root.geometry("1400x900")
+        root.resizable(True, True)
 
     load_app_icon(root)
 
