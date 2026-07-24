@@ -69,9 +69,6 @@ def _start_menu(root: ttk.Window = None) -> None:
         root.resizable(False, False)
 
     menu_root = root
-    global menu_root
-
-    menu_root = ttk.Window(
         title="Lee Research Group — Tool Suite",
         themename="darkly",
         size=(620, 480),
