@@ -247,8 +247,14 @@ def make_action_button(
 
 def make_titled_panel(parent: tk.Widget, title: str) -> ttk.LabelFrame:
     """Unified titled section panel factory using ttk.LabelFrame."""
-    lf = ttk.LabelFrame(parent, text=title)
-    lf.configure(style="primary.TLabelframe")
+    style = ttk.Style()
+    style.configure("CustomLabelframe.TLabelframe", 
+                   background="#2a2a3e",
+                   foreground="#cccccc",
+                   bordercolor="#666688",
+                   relief="solid")
+    
+    lf = ttk.LabelFrame(parent, text=title, style="CustomLabelframe.TLabelframe")
     lf.pack(fill=X, padx=2, pady=5, ipadx=10, ipady=10)
     return lf
 
