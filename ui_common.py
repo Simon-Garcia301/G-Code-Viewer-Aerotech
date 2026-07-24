@@ -216,14 +216,14 @@ def set_status(label: ttk.Label, text: str, level: str = "info") -> None:
 
 def make_progress_bar(parent: tk.Widget) -> ttk.Progressbar:
     """Standard indeterminate striped progress bar factory."""
-    bar = ttk.Progressbar(parent, bootstyle="striped-info.TProgressbar", mode="indeterminate")
+    bar = ttk.Progressbar(parent, mode="indeterminate")
     bar.pack(fill=X, pady=(4, 4))
     return bar
 
 def make_action_button(
     parent: tk.Widget,
     text: str,
-    bootstyle: str = "primary.TButton",
+    bootstyle: str = "primary",
     command: callable = None,
     state: str = "normal",
     width: int = None,
@@ -232,10 +232,14 @@ def make_action_button(
     """Unified button factory ensuring consistent sizing and padding across windows."""
     kwargs = {
         "text": text,
-        "style": bootstyle,
         "state": state,
         "padding": padding,
     }
+    # Basic color mapping for v1.20.4
+    if bootstyle == "primary":
+        kwargs["style"] = "TButton"
+    elif bootstyle == "success":
+        kwargs["style"] = "TButton"
     if command is not None:
         kwargs["command"] = command
     if width is not None:
@@ -247,14 +251,8 @@ def make_action_button(
 
 def make_titled_panel(parent: tk.Widget, title: str) -> ttk.LabelFrame:
     """Unified titled section panel factory using ttk.LabelFrame."""
-    style = ttk.Style()
-    style.configure("CustomLabelframe.TLabelframe", 
-                   background="#2a2a3e",
-                   foreground="#cccccc",
-                   bordercolor="#666688",
-                   relief="solid")
-    
-    lf = ttk.LabelFrame(parent, text=title, style="CustomLabelframe.TLabelframe")
+    lf = ttk.LabelFrame(parent, text=title)
+    lf.configure(relief="solid", borderwidth=1)
     lf.pack(fill=X, padx=2, pady=5, ipadx=10, ipady=10)
     return lf
 
