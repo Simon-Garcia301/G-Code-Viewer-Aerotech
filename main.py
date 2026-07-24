@@ -69,12 +69,6 @@ def _start_menu(root: ttk.Window = None) -> None:
         root.resizable(False, False)
 
     menu_root = root
-        title="Lee Research Group — Tool Suite",
-        themename="darkly",
-        size=(620, 480),
-        resizable=(False, False),
-    )
-
     load_app_icon(menu_root)
 
     # Top Suite Header
