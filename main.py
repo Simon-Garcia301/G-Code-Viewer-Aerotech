@@ -30,19 +30,27 @@ def _launch_and_return(build_func, tool_name: str) -> None:
     """Close the menu window, execute the selected tool, and re-open menu upon return."""
     global menu_root
     if menu_root:
-        menu_root.destroy()
+        menu_root.withdraw()  # Hide instead of destroy
 
     try:
         app_root = build_func()
-        app_root.protocol("WM_DELETE_WINDOW", app_root.quit)
+        app_root.protocol("WM_DELETE_WINDOW", lambda: _on_tool_close(app_root))
         app_root.mainloop()
     except Exception as err:
         messagebox.showerror(
             "Tool Launch Error",
             f"Could not launch {tool_name}.\n\nError details:\n{err}",
         )
-    finally:
-        _start_menu()
+        if menu_root:
+            menu_root.deiconify()  # Show menu again if error occurred
+
+def _on_tool_close(tool_window):
+    """Handle tool window closure by quitting it and showing menu again."""
+    global menu_root
+    tool_window.quit()
+    tool_window.destroy()
+    if menu_root:
+        menu_root.deiconify()
 
 def _start_menu():
     global menu_root
