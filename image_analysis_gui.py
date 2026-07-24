@@ -53,13 +53,12 @@ def _try_int(s: str, default: int = 0) -> int:
 
 def build_image_analysis_gui(root: ttk.Window = None) -> ttk.Window:
     if root is None:
-        root = ttk.Window(title="Lee Research Lab — Image Analysis")
-        root.style = ttk.Style()
-        root.style.theme_use("clam")  # Using built-in 'clam' theme as fallback
-        root.geometry("1400x900")
-        root.resizable(True, True)
-        # Manually set dark colors
-        root.configure(background="#1e1e2e")
+        root = ttk.Window(
+            title="Lee Research Lab — Image Analysis",
+            themename="darkly",
+            size=(1400, 900),
+            resizable=(True, True)
+        )
 
     load_app_icon(root)
 
