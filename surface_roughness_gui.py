@@ -193,7 +193,7 @@ class SurfaceRoughnessGUI:
             sec_glare,
             text="Enable intensity cap",
             variable=self._glare_enabled,
-            bootstyle="primary-round-toggle",
+            bootstyle="primary-round.TCheckbutton",
             command=self._on_glare_toggle,
         )
         cbtn.pack(anchor=W, pady=(0, 4))

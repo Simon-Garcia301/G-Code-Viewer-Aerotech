@@ -702,7 +702,7 @@ def build_gui(root: ttk.Window = None) -> ttk.Window:
             text=f"{icon}  {mode_text}",
             variable=view_mode_var,
             value=mode_text,
-            bootstyle="info-toolbutton",
+            bootstyle="info.Toolbutton",
             command=_on_mode_change,
         ).pack(fill=X, pady=(0, 3))
 

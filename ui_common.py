@@ -216,14 +216,14 @@ def set_status(label: ttk.Label, text: str, level: str = "info") -> None:
 
 def make_progress_bar(parent: tk.Widget) -> ttk.Progressbar:
     """Standard indeterminate striped progress bar factory."""
-    bar = ttk.Progressbar(parent, bootstyle="info-striped", mode="indeterminate")
+    bar = ttk.Progressbar(parent, bootstyle="striped-info.TProgressbar", mode="indeterminate")
     bar.pack(fill=X, pady=(4, 4))
     return bar
 
 def make_action_button(
     parent: tk.Widget,
     text: str,
-    bootstyle: str = "primary",
+    bootstyle: str = "primary.TButton",
     command: callable = None,
     state: str = "normal",
     width: int = None,
@@ -247,7 +247,7 @@ def make_action_button(
 
 def make_titled_panel(parent: tk.Widget, title: str) -> ttk.LabelFrame:
     """Unified titled section panel factory using ttk.LabelFrame."""
-    lf = ttk.LabelFrame(parent, text=title, bootstyle="primary", padding=10)
+    lf = ttk.LabelFrame(parent, text=title, bootstyle="primary.TLabelframe", padding=10)
     lf.pack(fill=X, padx=2, pady=5)
     return lf
 
