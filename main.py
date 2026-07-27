@@ -6,6 +6,7 @@ Launcher menu for the Lee Research Group Tool Suite v4.0.0.
 Refactored to consume ui_common header, buttons, icon loader, and about dialog.
 """
 
+import sys
 import tkinter as tk
 from tkinter import messagebox
 import ttkbootstrap as ttk
@@ -27,48 +28,56 @@ from ui_common import (
 menu_root = None
 
 def _launch_and_return(build_func, tool_name: str) -> None:
-    """Close the menu window, execute the selected tool, and re-open menu upon return."""
+    """Hide the menu window, execute the selected tool, and restore menu upon return."""
     global menu_root
-    if not menu_root:
-        return
+    if menu_root:
+        menu_root.withdraw() # Hide the main menu
 
     try:
-        # Clear current menu widgets but keep root window
-        for widget in menu_root.winfo_children():
-            widget.destroy()
+        # Pass the main menu as the master to the child tool
+        app_root = build_func(master=menu_root) 
         
-        # Rebuild as the tool GUI using same root window
-        build_func(menu_root)
+        # Destroy the child window when 'X' is clicked
+        app_root.protocol("WM_DELETE_WINDOW", app_root.destroy)
+        
+        # Pause the main menu until the child window is completely closed
+        menu_root.wait_window(app_root)
+        
     except Exception as err:
         messagebox.showerror(
             "Tool Launch Error",
             f"Could not launch {tool_name}.\n\nError details:\n{err}",
         )
+    finally:
         if menu_root:
-            menu_root.deiconify()  # Show menu again if error occurred
+            menu_root.deiconify() # Bring the main menu back
 
-def _start_menu(root: ttk.Window = None) -> None:
-    """(Re)build the main menu in the given root window"""
+def _start_menu():
     global menu_root
-    
-    if root is None:
-        root = ttk.Window(
-            title="Lee Research Group — Tool Suite",
-            themename="darkly",
-            size=(620, 480),
-            resizable=(False, False),
-        )
-    else:
-        # Clear existing widgets if reusing window
-        for widget in root.winfo_children():
-            widget.destroy()
-        
-        # Reset window geometry for menu
-        root.geometry("620x480")
-        root.minsize(620, 480)
-        root.resizable(False, False)
 
-    menu_root = root
+    menu_root = ttk.Window(
+        title="Lee Research Group — Tool Suite",
+        themename="darkly",
+        size=(620, 480),
+        resizable=(False, False),
+    )
+
+    # Silence background errors from lingering matplotlib/timer callbacks on exit
+    try:
+        menu_root.tk.eval('proc bgerror {args} {}')
+    except Exception:
+        pass
+
+    # Force a complete process kill when the main window's 'X' is clicked
+    def _on_close():
+        try:
+            menu_root.destroy()
+        except Exception:
+            pass
+        sys.exit(0)
+
+    menu_root.protocol("WM_DELETE_WINDOW", _on_close)
+
     load_app_icon(menu_root)
 
     # Top Suite Header
@@ -121,6 +130,12 @@ def _start_menu(root: ttk.Window = None) -> None:
         padding=(16, 12),
     )
     attach_tooltip(btn_surf, "Reflectance surface roughness analysis with 5x coaxial flat-field correction")
+
+    try:
+        import pyi_splash
+        pyi_splash.close()
+    except ImportError:
+        pass 
 
     menu_root.mainloop()
 

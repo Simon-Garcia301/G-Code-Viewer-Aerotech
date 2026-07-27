@@ -19,6 +19,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
 from ui_common import (
+    COLOR_BG_DARK,
     LENS_CALIBRATION_UM_PER_PX,
     make_app_header,
     make_app_footer,
@@ -51,14 +52,22 @@ def _try_int(s: str, default: int = 0) -> int:
     except (ValueError, AttributeError):
         return default
 
-def build_image_analysis_gui(root: ttk.Window = None) -> ttk.Window:
-    if root is None:
+def build_image_analysis_gui(master: ttk.Window = None) -> ttk.Window:
+    if master is None:
+        # Standalone mode
         root = ttk.Window(
             title="Lee Research Lab — Image Analysis",
             themename="darkly",
             size=(1400, 900),
-            resizable=(True, True)
+            resizable=(True, True),
         )
+    else:
+        # Child window mode (launched from main menu)
+        root = ttk.Toplevel(master=master)
+        root.title("Lee Research Lab — Image Analysis")
+        root.geometry("1400x900")
+        root.minsize(1000, 700)
+        # Note: We deleted the bg=COLOR_BG_DARK line because ttk.Toplevel themes itself!
 
     load_app_icon(root)
 

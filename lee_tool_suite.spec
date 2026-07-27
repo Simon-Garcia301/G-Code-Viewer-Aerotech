@@ -1,3 +1,4 @@
+from PyInstaller.utils.hooks import collect_data_files
 # -*- mode: python ; coding: utf-8 -*-
 import sys
 import os
@@ -11,7 +12,7 @@ a = Analysis(
     datas=[
         ('st thomas logo.png', '.'),
         ('assets/*', 'assets'),
-    ],
+    ] + collect_data_files('ttkbootstrap') + collect_data_files('tkinterdnd2'),
     hiddenimports=[
         'PIL',
         'PIL.Image',
@@ -23,7 +24,7 @@ a = Analysis(
         'numpy',
         'ttkbootstrap',
     ],
-    hookspath=['.'],
+    hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
@@ -37,7 +38,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 # PyInstaller startup splash screen using University of St. Thomas Logo
 splash = Splash(
-    'assets/st_thomas_logo.png',
+    'st thomas logo.png',
     binaries=a.binaries,
     datas=a.datas,
     text_pos=None,

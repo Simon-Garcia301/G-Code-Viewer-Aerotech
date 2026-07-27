@@ -26,18 +26,9 @@ import mpl_toolkits.mplot3d  # noqa: F401
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
-DND_AVAILABLE = False
 try:
     from tkinterdnd2 import TkinterDnD, DND_FILES
-    # Skip test window since it may cause issues with existing root
-    try:
-        import tkinter
-        test = tkinter.Tk()
-        test.tk.eval('package require tkdnd')
-        DND_AVAILABLE = True
-        test.destroy()
-    except:
-        DND_AVAILABLE = False
+    DND_AVAILABLE = True
 except ImportError:
     DND_AVAILABLE = False
 
@@ -48,6 +39,7 @@ from gcode_engine import (
     PrintLayer,
 )
 from ui_common import (
+    COLOR_BG_DARK,
     make_app_header,
     make_app_footer,
     make_scrollable_left_panel,
@@ -587,11 +579,21 @@ def _save_snapshot(fig: Figure, output_var, status_label) -> None:
     except Exception as exc:
         set_status(status_label, f"Save failed: {exc}", "error")
 
-def build_gui(root: ttk.Window) -> None:
-    """Build the G-Code converter GUI in the provided root window"""
-    root.title("Lee Research Lab — G-Code Converter & Visualizer")
-    root.geometry("1400x900")
-    root.minsize(1200, 800)
+def build_gui(master: ttk.Window = None) -> ttk.Window:
+    if master is None:
+        # Standalone mode
+        root = ttk.Window(
+            title="Lee Research Lab — G-Code Converter & Visualizer",
+            themename="darkly",
+            size=(1400, 900),
+            resizable=(True, True),
+        )
+    else:
+        # Child window mode (launched from main menu)
+        root = ttk.Toplevel(master=master)
+        root.title("Lee Research Lab — G-Code Converter & Visualizer")
+        root.geometry("1400x900")
+        root.minsize(1000, 700)
 
     load_app_icon(root)
 
@@ -708,7 +710,7 @@ def build_gui(root: ttk.Window) -> None:
             text=f"{icon}  {mode_text}",
             variable=view_mode_var,
             value=mode_text,
-            bootstyle="info.Toolbutton",
+            bootstyle="info-toolbutton",
             command=_on_mode_change,
         ).pack(fill=X, pady=(0, 3))
 
@@ -760,10 +762,16 @@ def build_gui(root: ttk.Window) -> None:
     input_var.trace_add("write", lambda *_: _update_convert_btn(input_var, output_var, convert_btn))
     output_var.trace_add("write", lambda *_: _update_convert_btn(input_var, output_var, convert_btn))
 
-    if DND_AVAILABLE and hasattr(input_entry, 'drop_target_register'):
+    # Only enable drag-and-drop if running standalone.
+    # This completely prevents the asynchronous Tcl event loop crash when launched from main.py.
+    if DND_AVAILABLE and master is None:
         try:
-            # Ensure tkdnd is loaded in the actual root window
-            root.tk.eval('package require tkdnd')
+            # Explicitly load the tkdnd C-library into ttkbootstrap's existing Tk interpreter
+            if hasattr(TkinterDnD, 'require'):
+                TkinterDnD.require(root)
+            elif hasattr(TkinterDnD, '_require'): # Fallback for older library versions
+                TkinterDnD._require(root)
+                
             input_entry.drop_target_register(DND_FILES)
             input_entry.dnd_bind(
                 "<<Drop>>",
@@ -780,21 +788,13 @@ def build_gui(root: ttk.Window) -> None:
                 ),
             )
         except Exception as e:
-            print(f"Drag-and-drop initialization failed: {e}")
+            # Gracefully fail instead of crashing the whole app
+            print(f"Warning: Drag-and-drop failed to initialize - {e}")
 
-    # Add return to menu handler
-    root.protocol("WM_DELETE_WINDOW", lambda: _start_menu())
+    return root
 
 def main():
-    """Standalone entry point that creates its own root window"""
-    root = ttk.Window(
-        title="Lee Research Lab — G-Code Converter & Visualizer",
-        themename="darkly",
-        size=(1400, 900),
-        resizable=(True, True),
-    )
-    build_gui(root)
-    root.mainloop()
+    build_gui().mainloop()
 
 if __name__ == "__main__":
     main()

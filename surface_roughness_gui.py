@@ -25,6 +25,7 @@ from ttkbootstrap.constants import *
 
 from surface_roughness_engine import SurfaceRoughnessAnalyzer
 from ui_common import (
+    COLOR_BG_DARK,
     LENS_CALIBRATION_UM_PER_PX,
     make_app_header,
     make_app_footer,
@@ -193,7 +194,7 @@ class SurfaceRoughnessGUI:
             sec_glare,
             text="Enable intensity cap",
             variable=self._glare_enabled,
-            bootstyle="primary-round.TCheckbutton",
+            bootstyle="primary-round-toggle",
             command=self._on_glare_toggle,
         )
         cbtn.pack(anchor=W, pady=(0, 4))
@@ -503,18 +504,25 @@ class SurfaceRoughnessGUI:
         set_status(self._status_label, f"CSV saved to: {paths[0]}", "success")
         messagebox.showinfo("Saved", f"Results successfully saved to:\n{paths[0]}")
 
-def build_surface_roughness_gui(root: ttk.Window = None) -> ttk.Window:
+def build_surface_roughness_gui(master: ttk.Window = None) -> ttk.Window:
     """Builder function creating and returning the Surface Roughness GUI window."""
-    if root is None:
+    if master is None:
+        # Standalone mode
         root = ttk.Window(
             title="Lee Research Lab — Surface Roughness Analysis",
             themename="darkly",
             size=(1400, 900),
             resizable=(True, True),
         )
+    else:
+        # Child window mode (launched from main menu)
+        root = ttk.Toplevel(master=master)
+        root.title("Lee Research Lab — Surface Roughness Analysis")
+        root.geometry("1400x900")
+        root.minsize(1200, 800)
+
     SurfaceRoughnessGUI(root)
     return root
-
 def main():
     root = build_surface_roughness_gui()
     root.mainloop()
