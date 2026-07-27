@@ -19,24 +19,11 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-splash = Splash(
-    'assets/st_thomas_logo.png',
-    binaries=a.binaries,
-    datas=a.datas,
-    text_pos=None,
-    text_size=12,
-    text_color='white',
-    minify_script=True,
-    max_img_size=(400, 300),  # <--- Forces a smaller display dimension
-)
-
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.datas,
-    splash,
-    splash.binaries,
     [],
     name='lee_tool_suite',
     debug=False,
