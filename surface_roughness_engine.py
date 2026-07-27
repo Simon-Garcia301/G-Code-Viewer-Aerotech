@@ -60,10 +60,10 @@ class SurfaceRoughnessAnalyzer:
         self.lens = lens
         self.flat_field_correction = flat_field_correction
 
-    def _flat_field_correct(self, gray: np.ndarray) -> np.ndarray:
+    def _flat_field_correct(self, gray: np.ndarray, mask: np.ndarray) -> np.ndarray:
         """
         Estimate and remove coaxial-illumination vignetting field from a
-        grayscale image using a self-calibration (rolling-ball / heavy blur)
+        grayscale image using a self-calibration (inpainting + heavy blur)
         background estimate — no reference/calibration image required.
 
         OPTICAL RATIONALE & BACKGROUND:
@@ -75,19 +75,37 @@ class SurfaceRoughnessAnalyzer:
         near ROI edges.
 
         Steps:
-          1. Estimate the illumination field by heavily blurring the image
+          1. Inpaint the sample region (where mask == 255) using Navier-Stokes
+             inpainting so the bright printed line / ROI does not bleed into the
+             background illumination estimate.
+          2. Estimate the illumination field by heavily blurring the *inpainted* image
              (large-kernel Gaussian, sigma scaled to image size ~1/8 of max(h, w))
              to remove high-frequency surface detail while retaining low-frequency optical falloff.
-          2. Normalize: corrected = gray / (illumination_field + epsilon),
+          3. Normalize: corrected = gray / (illumination_field + epsilon),
              rescaled back by the field's mean so absolute brightness scale is
              preserved and downstream glare_threshold comparisons remain meaningful.
-          3. Return corrected image array clipped to [0, 255].
+          4. Return corrected image array clipped to [0, 255].
+
+        Parameters
+        ----------
+        gray : np.ndarray
+            Raw grayscale image (uint8).
+        mask : np.ndarray
+            Binary mask (uint8, 0 or 255) where 255 marks the valid sample region
+            (ROI minus user exclusion polygons). This region is inpainted *out* of
+            the background estimate to prevent sample contamination.
         """
         h, w = gray.shape
         sigma = max(h, w) / 8.0
 
+        # Inpaint the sample region so it cannot contaminate the background estimate.
+        # Invert mask: inpaint target = sample area (where mask == 255).
+        inpaint_mask = cv2.bitwise_not(mask)
+        inpainted = cv2.inpaint(gray, inpaint_mask, inpaintRadius=3, flags=cv2.INPAINT_NS)
+
         gray_f = gray.astype(np.float64)
-        illumination_field = cv2.GaussianBlur(gray_f, (0, 0), sigmaX=sigma, sigmaY=sigma)
+        inpainted_f = inpainted.astype(np.float64)
+        illumination_field = cv2.GaussianBlur(inpainted_f, (0, 0), sigmaX=sigma, sigmaY=sigma)
 
         field_range = illumination_field.max() - illumination_field.min()
         if field_range < 5.0:
@@ -127,13 +145,9 @@ class SurfaceRoughnessAnalyzer:
             gray_orig = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             h, w = gray_orig.shape
 
-            # Apply self-calibrating flat-field correction for statistical computation
-            if self.flat_field_correction:
-                gray_analysis = self._flat_field_correct(gray_orig)
-            else:
-                gray_analysis = gray_orig.astype(np.float64)
-
-            # Build full mask
+            # Build full mask (ROI minus user exclusion polygons) BEFORE
+            # flat-field correction so the sample region can be inpainted
+            # out of the background illumination estimate.
             mask = np.ones((h, w), dtype=np.uint8) * 255
 
             x0, y0, x1, y1 = self.rect
@@ -152,6 +166,14 @@ class SurfaceRoughnessAnalyzer:
             for poly in self.masks:
                 pts = np.array(poly, dtype=np.int32).reshape((-1, 1, 2))
                 cv2.fillPoly(mask, [pts], color=0)
+
+            # Apply self-calibrating flat-field correction for statistical computation.
+            # Pass the pre-built mask so the sample region is inpainted out of the
+            # background illumination estimate.
+            if self.flat_field_correction:
+                gray_analysis = self._flat_field_correct(gray_orig, mask)
+            else:
+                gray_analysis = gray_orig.astype(np.float64)
 
             if self.glare_threshold is not None:
                 glare_mask = gray_analysis > self.glare_threshold
