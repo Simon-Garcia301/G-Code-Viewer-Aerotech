@@ -1,61 +1,44 @@
-from PyInstaller.utils.hooks import collect_data_files
 # -*- mode: python ; coding: utf-8 -*-
-import sys
-import os
-
-block_cipher = None
+from PyInstaller.utils.hooks import collect_data_files
 
 a = Analysis(
     ['main.py'],
-    pathex=['.'],
+    pathex=[],
     binaries=[],
     datas=[
         ('st thomas logo.png', '.'),
         ('assets/*', 'assets'),
     ] + collect_data_files('ttkbootstrap') + collect_data_files('tkinterdnd2'),
-    hiddenimports=[
-        'PIL',
-        'PIL.Image',
-        'PIL.ImageTk',
-        'matplotlib',
-        'matplotlib.backends.backend_tkagg',
-        'mpl_toolkits.mplot3d',
-        'cv2',
-        'numpy',
-        'ttkbootstrap',
-    ],
-    hookspath=[],
+    hiddenimports=[],
+    hookspath=['.'],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
+    optimize=0,
 )
+pyz = PYZ(a.pure)
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-
-# PyInstaller startup splash screen using University of St. Thomas Logo
 splash = Splash(
-    'st thomas logo.png',
+    'assets/st_thomas_logo.png',
     binaries=a.binaries,
     datas=a.datas,
     text_pos=None,
     text_size=12,
     text_color='white',
+    minify_script=True,
+    max_img_size=(400, 300),  # <--- Forces a smaller display dimension
 )
 
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.datas,
     splash,
     splash.binaries,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
-    name='LeeToolSuite_v4.0.0',
+    name='lee_tool_suite',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -64,9 +47,8 @@ exe = EXE(
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
+    argv_emulated=False,
     target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon='assets/app_icon.ico',
-    version='version_info.txt',
+    codesign_sign=False,
+    sign_signature=False,
 )
